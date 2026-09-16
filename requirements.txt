@@ -1,0 +1,14 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+faster-whisper
+numpy
+pyaudiowpatch
+silero-vad
+speechbrain
+torch
+torchaudio
+vosk==0.3.45
+pywebview
+winotify
+pyvirtualcam
+opencv-python-headless
+pygrabber

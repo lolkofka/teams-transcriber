@@ -1,0 +1,36 @@
+# Внешний обработчик звука. Запуск:  docker compose up -d --build
+# Токен берётся из файла .env рядом (TOKEN=...). Порт открыт только на localhost сервера —
+# с домашнего ПК подключаться SSH-туннелем:  ssh -N -L 8756:127.0.0.1:8756 user@сервер
+services:
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # для видеокарты раскомментируй строку ниже и секцию deploy.resources в конце
+        BASE: python:3.11-slim
+        # BASE: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+    image: teams-processor
+    container_name: teams-processor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8756:8756"
+    environment:
+      MODEL: ${MODEL:-large-v3-turbo}
+      DEVICE: ${DEVICE:-cpu}      # для видеокарты: cuda
+      THREADS: ${THREADS:-0}      # 0 = все ядра контейнера
+      MAX_BEAM: ${MAX_BEAM:-5}
+      TOKEN: ${TOKEN:?укажи TOKEN в файле .env}
+    volumes:
+      - models:/models            # кэш моделей, чтобы не качать заново
+    # --- видеокарта: раскомментировать вместе с BASE nvidia/cuda и DEVICE=cuda
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  models:

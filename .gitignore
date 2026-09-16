@@ -1,0 +1,28 @@
+# окружение и сборка
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+*.log
+*.spec.bak
+
+# данные и модели (гигабайты)
+recordings/
+discord_rec/
+models/
+
+# личные настройки и секреты
+journal.json
+journal_token.json
+gui_settings.json
+proc_token.txt
+*.lnk
+
+# сторонние бинарники/установщики
+vbcable/*.exe
+vbcable/*.zip
+unitycapture/*.zip
+unitycapture/UnityCapture-master/
+proclb/bin/
+proclb/obj/

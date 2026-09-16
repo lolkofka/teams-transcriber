@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Teams transcriber</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1117; --bg2: #151824; --card: #1a1e2b; --card2: #202536; --line: #2a3042;
+    --text: #e6e8ef; --muted: #8b91a7; --dim: #5f667d;
+    --accent: #6ee7d8; --accent2: #a78bfa; --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+    --radius: 14px; --font: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { user-select: none; }                                   /* controls are not selectable ... */
+  #stream, #stream *, #summary, #summary *, #answers, #answers *, #log, #log *, .live .txt, .quick .qq, .quick .aa { user-select: text; cursor: text; }  /* ...text is */
+  .item.slide img, .spk, .btn, button { user-select: none; cursor: pointer; }
+  ::selection { background: rgba(167,139,250,.45); }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); }
+  body { display: grid; grid-template-rows: 56px 1fr; overflow: hidden; }
+  button, select, input { font: inherit; color: inherit; }
+  ::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: #2a3042; border-radius: 8px; }
+
+  /* header */
+  header { display: flex; align-items: center; gap: 14px; padding: 0 18px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .2px; }
+  .logo .dot { width: 12px; height: 12px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 0 14px rgba(110,231,216,.5); }
+  .pill { padding: 4px 10px; border-radius: 999px; background: var(--card2); color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .pill .led { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .pill.listening .led { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 1.6s infinite; }
+  .pill.loading .led { background: var(--warn); animation: pulse .8s infinite; }
+  .pill.error .led { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  .meter { flex: 1; max-width: 220px; height: 8px; background: var(--card2); border-radius: 6px; overflow: hidden; position: relative; }
+  .meter i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 90ms linear; box-shadow: 0 0 10px rgba(167,139,250,.6); }
+  .file { margin-left: auto; color: var(--muted); font-size: 12px; max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .file:hover { color: var(--text); }
+  .icon { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; transition: .15s; }
+  .icon:hover { border-color: var(--accent2); transform: rotate(20deg); }
+
+  /* layout */
+  main { display: grid; grid-template-columns: 300px 1fr 280px; min-height: 0; }
+  aside, section { min-height: 0; overflow: auto; }
+  aside.left { padding: 14px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+  aside.right { padding: 14px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .card h3 .sp { flex: 1; }
+  label.f { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 12px; }
+  select, input[type=text], input[type=password], input[type=number] { width: 100%; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; outline: none; }
+  select:focus, input:focus { border-color: var(--accent2); }
+  input[type=range] { width: 100%; accent-color: var(--accent2); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .tgl { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; user-select: none; }
+  .tgl input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .btn { border: 1px solid var(--line); background: var(--card2); border-radius: 10px; padding: 8px 12px; cursor: pointer; transition: .15s; }
+  .btn:hover { border-color: var(--accent2); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.sm { padding: 3px 9px; font-size: 11px; border-radius: 8px; }
+  .btn.primary { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border: 0; color: #0b0d14;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 8px 24px rgba(167,139,250,.25); }
+  .btn.primary.stop { background: linear-gradient(135deg, #f87171, #fb923c); box-shadow: 0 8px 24px rgba(248,113,113,.25); }
+  .hint { font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .vcam { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: stretch; }
+  .vcam .hint { grid-column: 1 / -1; margin-top: -2px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vcambtn { display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-weight: 600; border-radius: 12px; text-align: left; min-width: 0; overflow: hidden; }
+  .vcambtn .ico { font-size: 18px; line-height: 1; filter: grayscale(1); opacity: .7; transition: .2s; }
+  .vcambtn .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vcambtn.on { border-color: rgba(110,231,216,.6); background: linear-gradient(135deg, rgba(110,231,216,.14), rgba(167,139,250,.14)); color: var(--text); box-shadow: 0 0 0 1px rgba(110,231,216,.25), 0 6px 22px rgba(110,231,216,.15); }
+  .vcambtn.on .ico { filter: none; opacity: 1; }
+  .vcambtn.err { border-color: rgba(248,113,113,.6); color: var(--err); }
+  .vcampick { border-radius: 12px; font-size: 18px; padding: 0; display: flex; align-items: center; justify-content: center; }
+  .vcampick:hover { border-color: var(--accent2); }
+  .vdev { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .vdev .led { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none; }
+  .vdev.ok .led { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .mini { font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--dim); font-weight: 500; }
+  .mini.on { color: var(--ok); } .mini.off { color: var(--warn); }
+  .microw { display: none; align-items: center; gap: 10px; margin-top: 10px; }
+  .microw.on { display: flex; }
+  .microw .lbl { font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .meter.mic { flex: 1; max-width: none; height: 6px; margin: 0; }
+  .meter.mic i { background: linear-gradient(90deg, var(--accent2), var(--accent)); box-shadow: none; }
+  .kv { font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+  .kv b { display: block; color: var(--text); font-weight: 500; font-size: 13px; margin-top: 2px; }
+  .kv.task b { color: var(--accent); }
+  .pts { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
+  .pts li { margin: 2px 0; }
+  .summary { display: flex; flex-direction: column; }
+  .summary .st { font-size: 11px; color: var(--dim); margin-top: 8px; }
+  .now-card { border-color: rgba(110,231,216,.25); }
+  .now-card.fresh { animation: flash 1.2s ease; }
+  @keyframes flash { 0% { box-shadow: 0 0 0 0 rgba(110,231,216,.5) } 100% { box-shadow: 0 0 0 14px rgba(110,231,216,0) } }
+
+  .ask { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .ask input { padding: 7px 10px; font-size: 13px; }
+  .qa { margin-top: 8px; font-size: 12px; }
+  .qa .q { color: var(--muted); }
+  .qa .q::before { content: "Вы: "; color: var(--dim); }
+  .qa .a { color: var(--text); margin-top: 3px; white-space: pre-wrap; animation: mat .4s ease both; }
+  .qa .a.err { color: var(--err); }
+  .qa .a.wait { color: var(--dim); font-style: italic; }
+  .hist-sep { text-align: center; color: var(--dim); font-size: 11px; margin: 6px 0 12px; letter-spacing: .6px; }
+  .item.slide .bubble { padding: 6px; background: var(--card); border: 1px solid rgba(167,139,250,.35); }
+  .item.slide img { display: block; max-width: 100%; max-height: 360px; border-radius: 9px; cursor: zoom-in; }
+  .item.slide .cap { font-size: 11px; color: var(--muted); padding: 5px 6px 2px; }
+  .pill.sharing .led { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); animation: pulse 1.6s infinite; }
+  .pill.rec { color: var(--err); border: 1px solid rgba(248,113,113,.5); }
+  .pill.rec .led { background: var(--err); box-shadow: 0 0 10px var(--err); animation: pulse .9s infinite; }
+  .rec-overlay { position: fixed; right: 18px; bottom: 18px; z-index: 55; background: var(--card); border: 1px solid rgba(248,113,113,.6); border-radius: 14px; padding: 12px 16px; display: none; align-items: center; gap: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.4); }
+  .rec-overlay.show { display: flex; }
+  .rec-overlay .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--err); box-shadow: 0 0 12px var(--err); animation: pulse .9s infinite; }
+  .rec-overlay .big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+  .rec-overlay .sub { font-size: 11px; color: var(--muted); }
+  .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 60; cursor: zoom-out; }
+  .lightbox.show { display: flex; } .lightbox img { max-width: 96vw; max-height: 94vh; border-radius: 8px; }
+
+  /* stream */
+  section.stream { position: relative; display: flex; flex-direction: column; }
+  #scroll { flex: 1; overflow: auto; padding: 18px 26px 6px; scroll-behavior: smooth; }
+  .item { display: grid; grid-template-columns: 74px 1fr; gap: 12px; margin: 0 0 10px; align-items: start; }
+  .item .t { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 9px; text-align: right; }
+  .bubble { border-radius: var(--radius); padding: 9px 13px; position: relative; overflow: hidden; }
+  .draft .bubble { color: var(--muted); background: transparent; border: 1px dashed var(--line); font-style: italic; }
+  .draft .w { display: inline-block; margin-right: .1em; animation: win .25s ease both; transition: opacity .35s, filter .35s, transform .35s; }
+  .draft .w.dissolve { opacity: 0; filter: blur(4px); transform: translateY(-8px); }
+  @keyframes win { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
+  .final .bubble { background: var(--card); border: 1px solid var(--line); }
+  .final.materialize .bubble { animation: mat .5s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes mat { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
+  .final.materialize .bubble::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(110deg, transparent 20%, rgba(110,231,216,.16) 50%, transparent 80%); transform: translateX(-100%); animation: sweep 1.1s .1s ease-out forwards; }
+  @keyframes sweep { to { transform: translateX(100%) } }
+  .final .w { display: inline-block; margin-right: .08em; }
+  .final.materialize .w { animation: wpop .32s ease both; }
+  @keyframes wpop { from { opacity: 0; transform: translateY(5px); filter: blur(2px) } to { opacity: 1; transform: none; filter: none } }
+  .spk { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .4px; padding: 2px 8px; border-radius: 999px; margin: 0 8px 4px 0; vertical-align: middle; color: #0b0d14; }
+  .final.materialize .spk { animation: pop .4s cubic-bezier(.2,1.4,.3,1) both; }
+  @keyframes pop { from { transform: scale(.5); opacity: 0 } to { transform: none; opacity: 1 } }
+  .item.me .bubble { background: linear-gradient(135deg, rgba(110,231,216,.10), rgba(167,139,250,.10)); border: 1px solid rgba(110,231,216,.35); }
+  .item.me .spk { background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .item.me .t { color: var(--accent); }
+  .item.ping .bubble { border-color: var(--warn); box-shadow: 0 0 0 1px rgba(251,191,36,.5), 0 0 24px rgba(251,191,36,.25); }
+  .item.ping .bubble::before { content: "🔔 вас позвали"; position: absolute; right: 10px; top: 6px; font-size: 10px; color: var(--warn); letter-spacing: .4px; }
+  .w.hit { color: var(--warn); font-weight: 600; }
+  .live { padding: 10px 26px 16px; border-top: 1px solid var(--line); background: var(--bg2); color: var(--muted); min-height: 46px; display: flex; gap: 12px; align-items: baseline; }
+  .live .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--dim); flex: none; }
+  .live .txt { font-style: italic; }
+  .live .caret { display: inline-block; width: 2px; height: 1em; background: var(--accent); margin-left: 3px; vertical-align: -2px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0 } }
+  .tobottom { position: absolute; right: 22px; bottom: 64px; display: none; }
+  .empty { color: var(--dim); text-align: center; margin-top: 18vh; }
+  .empty b { display: block; font-size: 18px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+
+  /* quick answer banner */
+  .quick { position: absolute; left: 26px; right: 26px; top: 14px; z-index: 30; background: linear-gradient(135deg, #1d2536, #1a1e2b); border: 1px solid rgba(251,191,36,.55);
+    border-radius: 14px; padding: 12px 44px 12px 16px; box-shadow: 0 16px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(251,191,36,.15); display: none; animation: mat .35s ease both; }
+  .quick.show { display: block; }
+  .quick .ttl { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--warn); margin-bottom: 4px; }
+  .quick .qq { color: var(--muted); font-size: 13px; }
+  .quick .aa { color: var(--text); font-size: 15px; font-weight: 600; margin-top: 4px; line-height: 1.4; }
+  .quick .aa.wait { color: var(--dim); font-weight: 400; font-style: italic; }
+  .quick .x { position: absolute; right: 10px; top: 8px; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--card2); cursor: pointer; }
+  .quick .meta { font-size: 10px; color: var(--dim); margin-top: 6px; }
+
+  /* toast */
+  .toast { position: fixed; left: 50%; top: 68px; transform: translateX(-50%) translateY(-20px); opacity: 0; pointer-events: none;
+    background: linear-gradient(135deg, #fbbf24, #fb923c); color: #0b0d14; font-weight: 600; padding: 10px 18px; border-radius: 999px;
+    box-shadow: 0 10px 30px rgba(251,191,36,.35); transition: .3s; z-index: 50; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* right */
+  .lesson { padding: 8px 10px; border-radius: 10px; border: 1px solid transparent; margin-bottom: 6px; }
+  .lesson .tm { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lesson .nm { font-size: 13px; }
+  .lesson .tc { font-size: 11px; color: var(--dim); }
+  .lesson.cur { border-color: rgba(110,231,216,.5); background: rgba(110,231,216,.06); }
+  .lesson.cur .tm { color: var(--accent); }
+  .lesson .cd { font-size: 11px; color: var(--accent); margin-left: 8px; font-variant-numeric: tabular-nums; }
+  .lesson.next .cd { color: var(--accent2); }
+  .lesson.next { border-color: rgba(167,139,250,.35); }
+  .lesson .vs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .lesson .tag { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--card2); color: var(--muted); border: 1px solid var(--line); }
+  .lesson .tag.was1 { color: var(--ok); border-color: rgba(74,222,128,.4); }
+  .lesson .tag.was0 { color: var(--err); border-color: rgba(248,113,113,.4); }
+  .lesson .tag.was2 { color: var(--warn); border-color: rgba(251,191,36,.4); }
+  .lesson .tag.mark { color: var(--accent); border-color: rgba(110,231,216,.35); font-weight: 600; }
+  .lesson .th { font-size: 11px; color: var(--dim); margin-top: 3px; }
+  #log { font: 11px/1.4 Consolas, monospace; color: var(--dim); max-height: 30vh; overflow: auto; white-space: pre-wrap; }
+  #log .e { color: var(--err); } #log .b { color: var(--muted); }
+  .stats { font-size: 11px; color: var(--dim); }
+
+  /* settings modal */
+  .modal { position: fixed; inset: 0; background: rgba(8,10,16,.72); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 40; }
+  .modal.open { display: flex; }
+  .sheet { width: min(980px, 94vw); max-height: 88vh; overflow: auto; background: var(--bg2); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; box-shadow: 0 30px 80px rgba(0,0,0,.5); animation: mat .25s ease both; }
+  .sheet .head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sheet .head h2 { margin: 0; font-size: 17px; font-weight: 600; flex: 1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } main { grid-template-columns: 260px 1fr; } aside.right { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="dot"></span> Teams transcriber</div>
+  <span id="status" class="pill"><span class="led"></span><span id="statusText">не запущено</span></span>
+  <div class="meter" title="уровень входа"><i id="meter"></i></div>
+  <span id="backlog" class="pill" style="display:none"></span>
+  <span id="sharing" class="pill" style="display:none"><span class="led"></span><span id="sharingText"></span></span>
+  <span id="camrecPill" class="pill rec" style="display:none"><span class="led"></span><span id="camrecText"></span></span>
+  <div id="file" class="file" title="открыть папку recordings"></div>
+  <button id="gear" class="icon" title="Настройки">⚙</button>
+</header>
+<main>
+  <aside class="left">
+    <button id="startBtn" class="btn primary">Старт</button>
+    <div class="vcam" id="vcamBox">
+      <button id="vcamBtn" class="btn vcambtn"><span class="ico">📷</span><span class="lbl">Камера выключена</span></button>
+      <button id="vcamPick" class="btn vcampick" title="Выбрать видео для камеры">🎞</button>
+      <div class="hint" id="vcamHint">видео не выбрано</div>
+      <button id="vcamInstall" class="btn sm" style="grid-column: 1 / -1; display:none" title="Скачает Unity Capture (~1 МБ) и зарегистрирует виртуальную камеру, нужны права администратора">⬇ установить драйвер камеры</button>
+    </div>
+    <div class="card" id="srcCard">
+      <h3>Источник <span class="sp"></span><span class="mini" id="micState"></span></h3>
+      <div class="kv">Вход<b id="srcIn">—</b></div>
+      <div class="kv">Выход<b id="srcOut">—</b></div>
+      <div class="kv">Микрофон<b id="srcMic">—</b></div>
+      <div class="microw" id="micRow"><span class="lbl">уровень микрофона</span><div class="meter mic"><i id="micMeter"></i></div></div>
+    </div>
+    <div class="card now-card" id="nowCard">
+      <h3>Сейчас на паре <span class="sp"></span><button id="docxBtn" class="btn sm" title="Собрать конспект: слайды + текст по времени">📄 DOCX</button><button id="pdfBtn" class="btn sm" title="Собрать конспект в PDF">PDF</button><button id="analyzeBtn" class="btn sm" title="Проанализировать сейчас">↻</button></h3>
+      <div class="summary" id="summary"><div class="hint" id="sumHint">Анализ выключен. Включи в настройках и вставь ключ API.</div></div>
+      <div class="ask">
+        <div class="row"><input type="text" id="askIn" placeholder="Спросить про пару…"><button id="askBtn" class="btn sm" style="flex:0 0 auto">Спросить</button></div>
+        <div id="answers"></div>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </aside>
+
+  <section class="stream">
+    <div id="scroll">
+      <div class="empty" id="empty"><b>Тишина</b>Нажми «Старт»: серым появится черновик, затем его заменит чистовой текст.</div>
+      <div id="stream"></div>
+    </div>
+    <div class="quick" id="quick"><button class="x" id="quickX">✕</button><div class="ttl" id="quickTtl">Вас позвали</div><div class="qq" id="quickQ"></div><div class="aa" id="quickA"></div><div class="meta" id="quickMeta"></div></div>
+    <button id="toBottom" class="btn tobottom">↓ вниз</button>
+    <div class="live"><span class="lbl">сейчас</span><span class="txt" id="live"></span><span id="caret" class="caret" style="display:none"></span></div>
+  </section>
+
+  <aside class="right">
+    <div class="card">
+      <h3>Пары сегодня</h3>
+      <div id="lessons" class="stats">нет данных</div>
+    </div>
+    <div class="card" style="flex:1; min-height:0; display:flex; flex-direction:column">
+      <h3>Журнал событий</h3>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+<div class="toast" id="toast"></div>
+<div class="rec-overlay" id="recOverlay"><span class="dot"></span><div><div style="font-weight:600">Запись с камеры</div><div class="sub" id="recSub">смотри в камеру</div></div><div class="big" id="recLeft">30</div></div>
+<div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
+
+<!-- ------------------------------------------------------------------ settings -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <div class="head"><h2>Настройки</h2><button id="openRecBtn" class="btn" title="Открыть папку recordings в Проводнике">📁 Папка записей</button><button id="refreshBtn" class="btn">Обновить устройства</button><button id="closeBtn" class="btn">Готово</button></div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Звук</h3>
+        <label class="f">Вход (откуда брать звук)</label>
+        <select id="inp"></select>
+        <label class="f">Выход (куда играть после программы)</label>
+        <select id="out"></select>
+        <label class="f">Громкость выхода <span id="volv">100</span>%</label>
+        <input type="range" id="vol" min="0" max="100" value="100">
+        <div class="vdev" id="vdev" style="margin-top:12px"><span class="led"></span><span id="vdevText">проверяю…</span></div>
+        <div class="row" style="margin-top:8px"><button id="cableBtn" class="btn">Установить своё устройство</button></div>
+      </div>
+      <div class="card">
+        <h3>Ваш микрофон</h3>
+        <label class="f">Микрофон (ваши реплики пишутся как «Вы»)</label>
+        <select id="mic"><option value="none">— не писать —</option></select>
+        <label class="f">Когда писать</label>
+        <select id="micMode">
+          <option value="teams">только когда микрофон включён в Teams</option>
+          <option value="always">всегда</option>
+        </select>
+        <h3 style="margin-top:16px">Распознавание</h3>
+        <div class="row">
+          <div><label class="f">Модель</label>
+            <select id="model"><option>large-v3-turbo</option><option>medium</option><option>small</option></select></div>
+          <div style="flex:.5"><label class="f">Язык</label><input type="text" id="lang" value="ru"></div>
+        </div>
+        <label class="f">Обработчик звука</label>
+        <select id="procMode">
+          <option value="local">наш, на этом компьютере</option>
+          <option value="external">внешний сервер</option>
+        </select>
+        <div id="procBox" style="display:none">
+          <div class="row">
+            <div><label class="f">Адрес</label><input type="text" id="procUrl" placeholder="http://192.168.1.50:8756"></div>
+            <div style="flex:.7"><label class="f">Токен</label><input type="password" id="procToken" placeholder="необязательно"></div>
+          </div>
+          <label class="f">Мощность обработки на сервере</label>
+          <div class="row">
+            <select id="procModel">
+              <option value="">как задано на сервере</option>
+              <option value="large-v3">large-v3 — лучшее качество, тяжелее всего</option>
+              <option value="large-v3-turbo">large-v3-turbo — качество/скорость</option>
+              <option value="medium">medium — легче</option>
+              <option value="small">small — самый быстрый</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:8px"><button id="procTest" class="btn" style="flex:0 0 auto">Проверить связь</button><span class="hint" id="procHint" style="margin:0"></span></div>
+          <div class="hint">На той машине: <code>python processor_server.py --model large-v3-turbo --device cuda --port 8756 --token СЕКРЕТ</code>. Если сервер не ответит, распознавание само вернётся на локальную модель.</div>
+        </div>
+        <label class="tgl"><input type="checkbox" id="journal" checked> Имя файла из журнала</label>
+        <label class="tgl"><input type="checkbox" id="vosk" checked> Мгновенный черновик (Vosk)</label>
+        <label class="tgl"><input type="checkbox" id="diar" checked> Метки говорящих</label>
+      </div>
+      <div class="card">
+        <h3>Оповещение, когда зовут вас</h3>
+        <label class="tgl"><input type="checkbox" id="alertOn" checked> Включено</label>
+        <label class="f">Ваше имя и варианты (через запятую)</label>
+        <input type="text" id="alertNames" placeholder="Кирилл, Кир, Кириллович">
+        <label class="f">Куда играть сигнал</label>
+        <select id="alertDev"><option value="default">Основное устройство Windows</option></select>
+        <div class="row" style="margin-top:10px"><button id="alertTest" class="btn">Проверить звук</button></div>
+        <div class="hint">Срабатывает и на черновике (меньше секунды), и на чистовой реплике; пауза между сигналами 8 с. Ваши собственные реплики не считаются.</div>
+        <label class="tgl" style="margin-top:10px"><input type="checkbox" id="quickOn" checked> Подсказывать ответ, если перед этим был вопрос</label>
+        <div class="row">
+          <div><label class="f">Быстрая модель (пусто = основная)</label><input type="text" id="quickModel" placeholder="gemini-2.5-flash-lite"></div>
+          <div style="flex:.5"><label class="f">Слов контекста</label><input type="number" id="quickWords" value="200" min="60" step="20"></div>
+        </div>
+        <div class="hint">Берутся последние N слов черновика до момента, когда вас позвали, и модель отвечает, был ли вопрос и что ответить. Использует ключ из «Анализ пары».</div>
+      </div>
+      <div class="card">
+        <h3>Уведомление о начале пары</h3>
+        <label class="tgl"><input type="checkbox" id="notifyOn" checked> Уведомлять в момент начала пары (Windows-уведомление + сигнал)</label>
+        <label class="f">Дополнительно предупредить за (мин, 0 = не надо)</label>
+        <input type="number" id="notifyLead" value="5" min="0" max="60">
+        <label class="tgl" style="margin-top:10px"><input type="checkbox" id="autostart" checked> Автоматически запускать запись в начале пары (если уже пишет, перезапустить в папку новой пары)</label>
+        <label class="tgl"><input type="checkbox" id="autostop"> Автоматически останавливать запись в конце пары</label>
+        <div class="hint">Расписание берётся из журнала, проверяется каждые 15 секунд, работает и без запущенной записи. Сигнал идёт на устройство из «Оповещение».</div>
+      </div>
+      <div class="card">
+        <h3>Виртуальная камера</h3>
+        <label class="f">Имя камеры (так её увидит Teams)</label>
+        <div class="row"><input type="text" id="vcamName" placeholder="HD Web Camera"><button id="vcamRename" class="btn" style="flex:0 0 auto">Применить</button></div>
+        <div class="hint">Смена имени перерегистрирует драйвер (запрос прав администратора). После этого в Teams заново выбери камеру с новым именем. Видео выбирается кнопкой 🎞 под Старт.</div>
+        <label class="f" style="margin-top:12px">Записать ролик с настоящей камеры</label>
+        <div class="row">
+          <select id="camDev"></select>
+          <input type="number" id="camSecs" value="30" min="3" max="600" style="flex:0 0 80px" title="секунд">
+          <button id="camRec" class="btn" style="flex:0 0 auto">⏺ Записать</button>
+        </div>
+        <div class="hint" id="camHint">Ролик сохраняется в recordings\camera и сразу становится видео виртуальной камеры. Камера должна быть свободна: в Teams её на это время выключи.</div>
+      </div>
+      <div class="card">
+        <h3>Слайды с показа экрана</h3>
+        <label class="tgl"><input type="checkbox" id="slidesOn" checked> Сохранять кадры, пока в Teams идёт показ экрана</label>
+        <div class="row">
+          <div><label class="f">Проверять раз в (сек)</label><input type="number" id="slidesInterval" value="3" min="1" step="1"></div>
+          <div><label class="f">Чувствительность (0–64, меньше = чаще)</label><input type="number" id="slidesThreshold" value="10" min="1" max="64"></div>
+        </div>
+        <div class="hint">Снимается только область общего контента в окне звонка. Кадр сохраняется, когда картинка изменилась и продержалась два замера. Папка slides внутри папки пары.</div>
+      </div>
+      <div class="card">
+        <h3>Журнал top-academy</h3>
+        <label class="f">Логин</label>
+        <input type="text" id="jUser" placeholder="логин от journal.top-academy.ru">
+        <label class="f">Пароль</label>
+        <input type="password" id="jPass" placeholder="">
+        <div class="row" style="margin-top:10px"><button id="jSave" class="btn">Проверить и сохранить</button></div>
+        <div class="hint" id="jHint">Нужен для имени файла по паре и списка пар. Хранится локально в journal.json, токен кэшируется.</div>
+      </div>
+      <div class="card">
+        <h3>Анализ пары (LLM)</h3>
+        <label class="tgl"><input type="checkbox" id="llmOn"> Включено</label>
+        <label class="f">API (OpenAI-совместимый; DeepSeek по умолчанию)</label>
+        <input type="text" id="llmBase" value="https://api.deepseek.com">
+        <div class="row">
+          <div><label class="f">Модель</label><input type="text" id="llmModel" value="deepseek-chat"></div>
+          <div style="flex:.6"><label class="f">Раз в (сек)</label><input type="number" id="llmInterval" value="180" min="45" step="15"></div>
+        </div>
+        <label class="f">Ключ API</label>
+        <input type="password" id="llmKey" placeholder="sk-…">
+        <div class="hint">Раз в несколько минут последние ~2500 слов отправляются в модель, она возвращает тему, текущее задание и тезисы. Ключ хранится локально в gui_settings.json.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const el = {};
+  ['inp','out','vol','volv','model','lang','journal','vosk','diar','startBtn','cableBtn','refreshBtn','vdev','vdevText','status','statusText',
+   'meter','backlog','file','stream','scroll','live','caret','toBottom','lessons','log','empty','stats','mic','micMode','micState','micMeter','micRow',
+   'gear','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast',
+   'alertOn','alertNames','alertDev','alertTest','llmOn','llmBase','llmModel','llmInterval','llmKey','jUser','jPass','jSave','jHint','askIn','askBtn','answers',
+   'quickOn','quickModel','quickWords','quick','quickX','quickTtl','quickQ','quickA','quickMeta',
+   'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop',
+   'vcamBtn','vcamPick','vcamHint','vcamInstall','vcamName','vcamRename','camDev','camSecs','camRec','camHint','camrecPill','camrecText','recOverlay','recSub','recLeft',
+   'procMode','procBox','procUrl','procToken','procTest','procHint','procModel'].forEach((id) => el[id] = $('#' + id));
+  const MOCK = location.search.includes('mock') || location.hash.includes('mock') || location.protocol === 'data:';  // demo feed outside pywebview
+  const api = () => window.pywebview && window.pywebview.api;
+
+  // ------------------------------------------------------------------ state
+  const S = { running: false, cable: null, drafts: [], finals: [], stuck: true, seq: 0, lessons: null, names: [] };
+  const PAL = ['#6ee7d8', '#a78bfa', '#fbbf24', '#4ade80', '#f472b6', '#60a5fa', '#fb923c', '#f87171'];
+  const spkColor = (s) => PAL[(parseInt((s || '').replace(/\D/g, '')) || 0) % PAL.length];
+  const fmt = (t) => t > 1e6 ? new Date(t * 1000).toTimeString().slice(0, 8) : new Date(t * 1000).toISOString().slice(11, 19);
+  const nameRx = () => { const st = S.names.filter(Boolean); return st.length ? new RegExp('^(' + st.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'i') : null; };
+
+  // ------------------------------------------------------------------ transcript rendering
+  function insertSorted(node, t0) {
+    node.dataset.t0 = t0;
+    for (const c of el.stream.children) { if (parseFloat(c.dataset.t0) > t0) { el.stream.insertBefore(node, c); return; } }
+    el.stream.appendChild(node);
+  }
+  function words(text, cls, rx) {
+    const frag = document.createDocumentFragment();
+    text.split(/\s+/).filter(Boolean).forEach((w, i) => {
+      const s = document.createElement('span'); s.className = cls + (rx && rx.test(w) ? ' hit' : ''); s.textContent = w; s.style.animationDelay = (i * 22) + 'ms';
+      frag.appendChild(s); frag.appendChild(document.createTextNode(' '));
+    });
+    return frag;
+  }
+  function renderDrafts() {
+    el.stream.querySelectorAll('.item.draft:not(.dying)').forEach((n) => n.remove());
+    const ws = S.drafts.slice().sort((a, b) => a.t0 - b.t0);
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      const item = document.createElement('div'); item.className = 'item draft';
+      item.innerHTML = `<div class="t">${fmt(group[0].t0)}</div><div class="bubble"></div>`;
+      const b = item.querySelector('.bubble');
+      group.forEach((w) => { const s = document.createElement('span'); s.className = 'w'; s.textContent = w.w; s.dataset.id = w.id; b.appendChild(s); b.appendChild(document.createTextNode(' ')); });
+      insertSorted(item, group[0].t0);
+      group = [];
+    };
+    for (const w of ws) { if (group.length && (w.t0 - group[group.length - 1].t1 > 1.5)) flush(); group.push(w); }
+    flush();
+  }
+  function onDraft(e) {
+    el.empty.style.display = 'none';
+    const ws = (e.words && e.words.length) ? e.words : e.text.split(/\s+/).map((w, i, a) => ({ w, t0: e.t0 + i * (e.t1 - e.t0) / a.length, t1: e.t0 + (i + 1) * (e.t1 - e.t0) / a.length }));
+    ws.forEach((w) => S.drafts.push({ id: ++S.seq, w: w.w, t0: w.t0, t1: w.t1 }));
+    setLive(''); renderDrafts(); autoscroll();
+  }
+  function onFinal(e) {
+    el.empty.style.display = 'none';
+    const lo = e.t0 - 0.5, hi = e.t1 + 0.5;
+    const victims = S.drafts.filter((w) => (w.t0 + w.t1) / 2 >= lo && (w.t0 + w.t1) / 2 <= hi);
+    const ids = new Set(victims.map((w) => w.id));
+    S.drafts = S.drafts.filter((w) => !ids.has(w.id));
+    const dying = [];
+    el.stream.querySelectorAll('.item.draft .w').forEach((n) => { if (ids.has(+n.dataset.id)) { n.classList.add('dissolve'); dying.push(n.closest('.item')); } });
+    dying.forEach((n) => n.classList.add('dying'));
+    const item = document.createElement('div'); item.className = 'item final materialize' + (e.source === 'mic' ? ' me' : '') + (e.ping ? ' ping' : '');
+    item.innerHTML = `<div class="t" title="${fmt(e.t0)}–${fmt(e.t1)}">${fmt(e.t0)}</div><div class="bubble"></div>`;
+    const b = item.querySelector('.bubble');
+    if (e.speaker && e.speaker !== 'SPEAKER') { const s = document.createElement('span'); s.className = 'spk'; s.textContent = e.speaker.replace('SPEAKER_', 'Спикер '); if (e.source !== 'mic') s.style.background = spkColor(e.speaker); b.appendChild(s); }
+    b.appendChild(words(e.text, 'w', e.source !== 'mic' ? nameRx() : null));
+    S.finals.push({ t0: e.t0, t1: e.t1 });
+    setTimeout(() => { dying.forEach((n) => n.remove()); insertSorted(item, e.t0); renderDrafts(); setTimeout(() => item.classList.remove('materialize'), 1600); autoscroll(); }, victims.length ? 330 : 0);
+  }
+  function onHistory(items) {
+    if (!items || !items.length) return;
+    el.empty.style.display = 'none';
+    items.forEach((e) => {
+      const item = document.createElement('div'); item.className = 'item final' + (e.source === 'mic' ? ' me' : '');
+      item.innerHTML = `<div class="t">${fmt(e.t0)}</div><div class="bubble"></div>`;
+      const b = item.querySelector('.bubble');
+      if (e.speaker && e.speaker !== 'SPEAKER') { const s = document.createElement('span'); s.className = 'spk'; s.textContent = e.speaker.replace('SPEAKER_', 'Спикер '); if (e.source !== 'mic') s.style.background = spkColor(e.speaker); b.appendChild(s); }
+      b.appendChild(words(e.text, 'w', null));
+      insertSorted(item, e.t0);
+      S.finals.push({ t0: e.t0, t1: e.t1 });
+    });
+    const sep = document.createElement('div'); sep.className = 'hist-sep'; sep.textContent = `— выше: ${items.length} реплик из прошлого запуска —`;
+    insertSorted(sep, items[items.length - 1].t1 + 0.001);
+    S.stuck = true; autoscroll();
+  }
+  function onSlide(e) {
+    el.empty.style.display = 'none';
+    const item = document.createElement('div'); item.className = 'item slide';
+    const src = e.data || ('file:///' + String(e.path).replace(/\\/g, '/'));
+    item.innerHTML = `<div class="t">${fmt(e.t)}</div><div class="bubble"><img src="${src}" alt="слайд ${e.n}"><div class="cap">Слайд ${e.n}${e.presenter ? ' · показывает ' + esc(e.presenter) : ''} · ${e.w}×${e.h}</div></div>`;
+    item.querySelector('img').onclick = () => { el.lightboxImg.src = src; el.lightbox.classList.add('show'); };
+    insertSorted(item, e.t);
+    addLog(`[slides] слайд ${e.n} сохранён`, '');
+    autoscroll();
+  }
+  el.lightbox.onclick = () => el.lightbox.classList.remove('show');
+  async function makeReport(fmt) {
+    const b = fmt === 'pdf' ? el.pdfBtn : el.docxBtn; b.disabled = true;
+    const r = await api().make_report(fmt); b.disabled = false;
+    if (r.ok) { toast('📄 конспект готов: ' + r.path.split(/[\\/]/).slice(-3).join('/')); addLog('[report] ' + r.path, 'b'); }
+    else { addLog('[report] ' + r.error, 'e'); toast('не удалось собрать конспект'); }
+  }
+  el.docxBtn.onclick = () => makeReport('docx'); el.pdfBtn.onclick = () => makeReport('pdf');
+  // ---- virtual camera: one button toggles the video into the virtual webcam
+  const base = (p) => String(p || '').split(/[\\/]/).pop();
+  function renderVcam(st) {
+    if (!st) return;
+    S.vcam = st;
+    el.vcamBtn.classList.toggle('on', !!st.on); el.vcamBtn.classList.toggle('err', !st.on && !!st.error);
+    el.vcamBtn.querySelector('.lbl').textContent = st.on ? 'Камера включена' : 'Камера выключена'; el.vcamBtn.title = st.on ? 'Идёт в ' + (st.device || '') : 'Включить видео в виртуальную камеру';
+    if (st.on) el.vcamHint.textContent = base(st.file) + (st.fps ? ' · ' + st.fps + ' fps' : '');
+    else if (st.error) el.vcamHint.textContent = st.error;
+    else if (st.file) el.vcamHint.textContent = base(st.file) + (st.available && st.available.length ? ' · ' + st.available.join(', ') : ' · нет драйвера камеры');
+    else el.vcamHint.textContent = 'видео не выбрано' + (st.available && !st.available.length ? ' · нет драйвера камеры' : '');
+    const noDriver = !st.on && Array.isArray(st.available) && !st.available.length;
+    el.vcamInstall.style.display = noDriver ? 'block' : 'none';
+  }
+  // ---- record a clip from the physical camera (settings) with a visible countdown
+  async function loadCams() {
+    try {
+      const cams = await api().cam_devices(); const cur = el.camDev.value;
+      el.camDev.innerHTML = '';
+      cams.forEach((c) => { const o = new Option(c.name + (c.virtual ? '  (виртуальная)' : ''), c.index); o.dataset.virtual = c.virtual ? '1' : ''; el.camDev.add(o); });
+      const real = cams.find((c) => !c.virtual); if (cur) el.camDev.value = cur; else if (real) el.camDev.value = real.index;
+      if (!cams.length) el.camHint.textContent = 'камеры не найдены';
+    } catch (e) {}
+  }
+  function onCamRec(e) {
+    if (e.state === 'recording') {
+      el.recOverlay.classList.add('show'); el.recLeft.textContent = e.left; el.recSub.textContent = `смотри в камеру · ${e.size} · ${e.fps} fps`;
+      el.camrecPill.style.display = 'inline-flex'; el.camrecText.textContent = `запись с камеры ${e.left} с`;
+      el.camHint.textContent = `идёт запись… осталось ${e.left} с`; el.camRec.disabled = true;
+    } else if (e.state === 'done') {
+      el.recOverlay.classList.remove('show'); el.camrecPill.style.display = 'none'; el.camRec.disabled = false;
+      el.camHint.textContent = 'записано: ' + base(e.file) + ` (${e.seconds} с, ${e.fps} fps) · поставлено как видео камеры`; toast('⏺ ролик записан и выбран для камеры');
+    } else if (e.state === 'error') {
+      el.recOverlay.classList.remove('show'); el.camrecPill.style.display = 'none'; el.camRec.disabled = false;
+      el.camHint.textContent = 'ошибка: ' + e.error; toast('не удалось записать: ' + e.error);
+    }
+  }
+  el.camRec.onclick = async () => {
+    if (!el.camDev.value) { toast('камера не выбрана'); return; }
+    if (el.camDev.selectedOptions[0]?.dataset.virtual) { toast('это виртуальная камера, выбери настоящую'); return; }
+    el.camRec.disabled = true; el.camHint.textContent = 'открываю камеру…';
+    const r = await api().cam_record(+el.camDev.value, +el.camSecs.value || 30);
+    if (!r.ok) { el.camRec.disabled = false; el.camHint.textContent = 'ошибка: ' + r.error; toast(r.error); }
+  };
+  el.procMode.onchange = () => { el.procBox.style.display = el.procMode.value === 'external' ? 'block' : 'none'; };
+  el.procTest.onclick = async () => {
+    el.procTest.disabled = true; el.procHint.textContent = 'проверяю…';
+    const r = await api().proc_test(el.procUrl.value.trim(), el.procToken.value.trim());
+    el.procTest.disabled = false;
+    if (r.ok) {
+      const hw = r.device === 'cuda' ? 'видеокарта' : `процессор, ${r.threads} из ${r.cores} потоков`;
+      el.procHint.textContent = `связь есть · ${hw} · ${r.compute_type} · модель по умолчанию ${r.model}` +
+        (r.allow_model_switch ? '' : ' · смена модели на сервере запрещена');
+      const allowed = r.allowed_models || [];
+      [...el.procModel.options].forEach((o) => { o.disabled = !!o.value && allowed.length && !allowed.includes(o.value); });
+      if (el.procModel.selectedOptions[0]?.disabled) { el.procModel.value = ''; toast('эта модель на сервере недоступна'); }
+    } else el.procHint.textContent = 'нет связи: ' + r.error;
+    el.procHint.style.color = r.ok ? 'var(--ok)' : 'var(--err)';
+  };
+  el.vcamRename.onclick = async () => { const n = el.vcamName.value.trim() || 'HD Web Camera'; el.vcamRename.disabled = true; addLog('=== перерегистрация камеры как «' + n + '» ===', 'b'); await api().save_settings(cfg()); await api().vcam_install(n); setTimeout(() => el.vcamRename.disabled = false, 15000); };
+  el.vcamInstall.onclick = async () => { el.vcamInstall.disabled = true; el.vcamInstall.textContent = 'устанавливаю… (подтверди запрос администратора)'; addLog('=== установка драйвера виртуальной камеры ===', 'b'); await api().vcam_install(); setTimeout(() => { el.vcamInstall.disabled = false; el.vcamInstall.textContent = '⬇ установить драйвер камеры'; }, 20000); };
+  el.vcamBtn.onclick = async () => {
+    el.vcamBtn.disabled = true;
+    const st = await api().vcam_toggle();
+    el.vcamBtn.disabled = false;
+    if (st && st.ok === false) { toast(st.error); if (st.error && st.error.includes('видео')) el.vcamPick.click(); return; }
+    renderVcam(st);
+  };
+  el.vcamPick.onclick = async () => { const r = await api().vcam_pick(); if (r.ok) { toast('видео: ' + base(r.file)); renderVcam(Object.assign({}, S.vcam || {}, { file: r.file })); } };
+  function setLive(text) { el.live.textContent = text; el.caret.style.display = text ? 'inline-block' : 'none'; }
+  function autoscroll() { if (S.stuck) el.scroll.scrollTop = el.scroll.scrollHeight; }
+  el.scroll.addEventListener('scroll', () => { S.stuck = el.scroll.scrollHeight - el.scroll.scrollTop - el.scroll.clientHeight < 40; el.toBottom.style.display = S.stuck ? 'none' : 'block'; });
+  el.toBottom.onclick = () => { S.stuck = true; autoscroll(); };
+
+  // ------------------------------------------------------------------ analysis card + toast
+  function renderSummary(st) {
+    if (!st || (!st.topic && !st.task)) { el.summary.innerHTML = '<div class="hint" id="sumHint">Пока нечего показать: анализ идёт по накопленному тексту.</div>'; return; }
+    const upd = st.updated ? new Date(st.updated * 1000).toTimeString().slice(0, 5) : '';
+    el.summary.innerHTML = `<div class="kv">Тема<b>${esc(st.topic || '—')}</b></div>` +
+      (st.task ? `<div class="kv task">Задание<b>${esc(st.task)}${st.deadline ? ' · ' + esc(st.deadline) : ''}</b></div>` : '') +
+      (st.points && st.points.length ? `<ul class="pts">${st.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : '') +
+      `<div class="st">обновлено ${upd}${st.tokens ? ' · ' + st.tokens + ' токенов' : ''}</div>`;
+    el.nowCard.classList.remove('fresh'); void el.nowCard.offsetWidth; el.nowCard.classList.add('fresh');
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function onAnswer(e) {
+    const w = el.answers.querySelector('.a.wait'); if (w) w.remove();
+    const last = el.answers.lastElementChild;
+    const box = (last && last.dataset.q === e.q) ? last : null;
+    const qa = box || document.createElement('div');
+    if (!box) { qa.className = 'qa'; qa.dataset.q = e.q; qa.innerHTML = `<div class="q">${esc(e.q)}</div>`; el.answers.appendChild(qa); }
+    const a = document.createElement('div'); a.className = 'a' + (e.ok ? '' : ' err'); a.textContent = e.ok ? e.a : 'ошибка: ' + e.error; qa.appendChild(a);
+    while (el.answers.children.length > 4) el.answers.firstChild.remove();
+    el.askBtn.disabled = false;
+  }
+  async function ask() {
+    const q = el.askIn.value.trim(); if (!q) return;
+    await api().apply_extras(cfg());
+    const r = await api().ask(q);
+    if (!r.ok) { addLog('[ask] ' + r.error, 'e'); el.modal.classList.add('open'); return; }
+    el.askIn.value = ''; el.askBtn.disabled = true;
+    const qa = document.createElement('div'); qa.className = 'qa'; qa.dataset.q = q; qa.innerHTML = `<div class="q">${esc(q)}</div><div class="a wait">думаю…</div>`; el.answers.appendChild(qa);
+    while (el.answers.children.length > 4) el.answers.firstChild.remove();
+  }
+  let quickT;
+  function onQuick(e) {
+    clearTimeout(quickT);
+    el.quick.classList.add('show');
+    if (e.pending) { el.quickTtl.textContent = 'Вас позвали: «' + e.word + '»'; el.quickQ.textContent = ''; el.quickA.textContent = 'смотрю, был ли вопрос…'; el.quickA.className = 'aa wait'; el.quickMeta.textContent = ''; return; }
+    if (!e.ok) { el.quickA.textContent = 'подсказка не удалась: ' + e.error; el.quickA.className = 'aa wait'; quickT = setTimeout(hideQuick, 15000); return; }
+    if (!e.question) { el.quickQ.textContent = 'Вопроса к вам в последних словах не найдено.'; el.quickA.textContent = ''; el.quickMeta.textContent = `${e.latency} с`; quickT = setTimeout(hideQuick, 12000); return; }
+    el.quickTtl.textContent = 'Вас спросили: «' + e.word + '»';
+    el.quickQ.textContent = e.question; el.quickA.textContent = e.answer; el.quickA.className = 'aa';
+    el.quickMeta.textContent = `${e.latency} с` + (e.tokens ? ` · ${e.tokens} токенов` : '') + (e.confidence != null ? ` · уверенность ${Math.round(e.confidence * 100)}%` : '');
+    addLog('[quick] ' + e.question + ' → ' + e.answer, 'b');
+    quickT = setTimeout(hideQuick, 90000);
+  }
+  function hideQuick() { el.quick.classList.remove('show'); }
+  el.quickX.onclick = hideQuick;
+  let toastT;
+  function toast(text) { el.toast.textContent = text; el.toast.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.toast.classList.remove('show'), 4000); }
+
+  // ------------------------------------------------------------------ events from python
+  function addLog(text, cls) {
+    const d = document.createElement('div'); d.textContent = text; if (cls) d.className = cls; el.log.appendChild(d);
+    while (el.log.children.length > 300) el.log.firstChild.remove();
+    el.log.scrollTop = el.log.scrollHeight;
+  }
+  function setStatus(kind, text) { el.status.className = 'pill ' + kind; el.statusText.textContent = text; }
+  function setMicState(st) {
+    if (!st) { el.micState.textContent = ''; el.micState.className = 'mini'; return; }
+    if (!st.in_call) { el.micState.textContent = 'Teams: не в звонке'; el.micState.className = 'mini off'; }
+    else if (st.mic_on) { el.micState.textContent = 'Teams: микрофон включён, пишу'; el.micState.className = 'mini on'; }
+    else { el.micState.textContent = 'Teams: микрофон выключен, не пишу'; el.micState.className = 'mini off'; }
+  }
+  window.__evt = (e) => {
+    switch (e.kind) {
+      case 'draft': onDraft(e); if (e.ping) toast('🔔 Вас позвали: «' + e.ping + '»'); break;
+      case 'partial': setLive(e.text); if (e.ping) toast('🔔 Вас позвали: «' + e.ping + '»'); break;
+      case 'final': onFinal(e); break;
+      case 'ping': addLog('[ping] ' + e.word + ': ' + e.text, 'b'); break;
+      case 'quick': onQuick(e); break;
+      case 'slide': onSlide(e); break;
+      case 'vcam': renderVcam(e); break;
+      case 'camrec': onCamRec(e); break;
+      case 'lesson_start': toast((e.phase === 'start' ? '🎓 Пара началась: ' : e.phase === 'end' ? '🏁 Пара закончилась: ' : `⏰ Пара через ${e.minutes} мин: `) + e.subject); addLog(`[lesson] ${e.phase === 'start' ? 'началась' : e.phase === 'end' ? 'закончилась' : 'через ' + e.minutes + ' мин'}: ${e.start}–${e.end} ${e.subject}`, 'b'); loadLessons(); break;
+      case 'autostart': runCfg = cfg(); setStatus('loading', 'автозапуск'); lock(true); el.startBtn.disabled = true; break;
+      case 'sharing': el.sharing.style.display = e.sharing ? 'inline-flex' : 'none'; el.sharing.className = 'pill sharing'; el.sharingText.textContent = 'показ экрана: ' + (e.presenter || ''); break;
+      case 'analysis': renderSummary(e); break;
+      case 'history': onHistory(e.items); break;
+      case 'answer': onAnswer(e); break;
+      case 'teams_mic': setMicState(e); break;
+      case 'level': el.meter.style.width = Math.min(100, e.v * 300) + '%'; el.micMeter.style.width = Math.min(100, (e.mic || 0) * 300) + '%';
+        el.backlog.style.display = e.backlog ? 'inline-flex' : 'none'; el.backlog.textContent = 'очередь ' + e.backlog; break;
+      case 'stats': el.stats.textContent = `${e.utts} реплик, ${e.audio}с аудио за ${e.proc}с` + (e.backlog ? `, очередь ${e.backlog}` : '') + (e.beam && e.beam < 5 ? ` · ускоренный режим (beam ${e.beam})` : ''); break;
+      case 'started': S.running = true; setStatus('listening', 'слушаю'); el.file.textContent = e.file || ''; el.startBtn.textContent = 'Стоп'; el.startBtn.classList.add('stop'); el.startBtn.disabled = false;
+        el.micRow.classList.toggle('on', el.mic.value !== 'none'); if (e.info) addLog('[journal] ' + e.info, 'b'); if (e.history) addLog(`[history] подгружено реплик из прошлого запуска: ${e.history}`, 'b'); break;
+      case 'stopped': el.sharing.style.display = 'none'; setMicState(null); el.micRow.classList.remove('on'); el.micMeter.style.width = '0%'; S.running = false;
+        setStatus(e.error ? 'error' : '', e.error ? 'ошибка' : 'остановлено'); el.startBtn.textContent = 'Старт'; el.startBtn.classList.remove('stop'); el.startBtn.disabled = false;
+        setLive(''); el.meter.style.width = '0%'; lock(false); if (e.error) addLog('[error] ' + e.error, 'e'); break;
+      case 'devices_changed': loadDevices(); el.cableBtn.disabled = false; break;
+      case 'log': addLog(e.text, e.text.startsWith('[error]') ? 'e' : (e.dim ? '' : 'b'));
+        if (e.text.startsWith('[ready]')) setStatus('listening', 'слушаю');
+        else if (e.text.startsWith('[init]')) setStatus('loading', 'загрузка моделей');
+        else if (e.text.startsWith('[error]')) setStatus('error', 'ошибка'); break;
+    }
+  };
+
+  // ------------------------------------------------------------------ settings + controls
+  function lock(on) { [el.inp, el.out, el.model, el.lang, el.journal, el.vosk, el.diar, el.cableBtn, el.mic, el.micMode].forEach((x) => x.disabled = on); }
+  function cfg() {
+    return { input: el.inp.value, output: el.out.value, volume: +el.vol.value, model: el.model.value, language: el.lang.value.trim() || 'ru',
+             journal: el.journal.checked, vosk: el.vosk.checked, diar: el.diar.checked,
+             mic: el.mic.value, mic_mode: el.micMode.value, micName: el.mic.selectedOptions[0]?.dataset.name,
+             inputName: el.inp.selectedOptions[0]?.dataset.name, outputName: el.out.selectedOptions[0]?.dataset.name,
+             alert_enabled: el.alertOn.checked, alert_names: el.alertNames.value, alert_device: el.alertDev.value, alertDevName: el.alertDev.selectedOptions[0]?.dataset.name,
+             llm_enabled: el.llmOn.checked, llm_base: el.llmBase.value.trim(), llm_model: el.llmModel.value.trim(), llm_interval: +el.llmInterval.value || 180, llm_key: el.llmKey.value.trim(),
+             quick_enabled: el.quickOn.checked, quick_model: el.quickModel.value.trim(), quick_words: +el.quickWords.value || 200,
+             slides_enabled: el.slidesOn.checked, slides_interval: +el.slidesInterval.value || 3, slides_threshold: +el.slidesThreshold.value || 10,
+             notify_enabled: el.notifyOn.checked, notify_lead: +el.notifyLead.value || 0, vcam_name: el.vcamName.value.trim(),
+             proc_mode: el.procMode.value, proc_url: el.procUrl.value.trim(), proc_token: el.procToken.value.trim(),
+             proc_model: el.procModel.value,
+             autostart: el.autostart.checked, autostop: el.autostop.checked };
+  }
+  function showSource() {
+    const n = (sel) => sel.selectedOptions[0]?.dataset.name || sel.selectedOptions[0]?.textContent || '—';
+    el.srcIn.textContent = n(el.inp); el.srcOut.textContent = el.out.value === 'none' ? 'не играть' : n(el.out);
+    el.srcMic.textContent = el.mic.value === 'none' ? 'не пишется' : n(el.mic) + (el.micMode.value === 'teams' ? ' · когда включён в Teams' : ' · всегда');
+    S.names = el.alertNames.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+  }
+  let runCfg = null;
+  async function saveAndApply() { const c = cfg(); showSource();
+    if (S.running && runCfg && (c.mic !== runCfg.mic || c.mic_mode !== runCfg.mic_mode || c.input !== runCfg.input || c.output !== runCfg.output || c.model !== runCfg.model))
+      toast('Звук и модель применятся после перезапуска записи: Стоп → Старт'); await api().save_settings(c); const r = await api().apply_extras(c); if (!r.analyst) { if (!c.llm_enabled) el.summary.innerHTML = '<div class="hint">Анализ выключен. Включи в настройках и вставь ключ API.</div>'; } }
+  // autosave: any change in the settings form is written within half a second (a restart must not lose it)
+  let saveT;
+  el.modal.addEventListener('input', () => { clearTimeout(saveT); saveT = setTimeout(() => { showSource(); api().save_settings(cfg()); }, 500); });
+  el.modal.addEventListener('change', () => { clearTimeout(saveT); saveT = setTimeout(() => { showSource(); api().save_settings(cfg()); }, 100); });
+  el.gear.onclick = () => el.modal.classList.add('open');
+  el.closeBtn.onclick = async () => { el.modal.classList.remove('open'); await saveAndApply(); };
+  el.modal.addEventListener('click', (ev) => { if (ev.target === el.modal) el.closeBtn.onclick(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && el.modal.classList.contains('open')) el.closeBtn.onclick(); });
+  el.startBtn.onclick = async () => {
+    if (!S.running) {
+      if (!el.inp.value) { addLog('[error] выбери входное устройство в настройках', 'e'); el.modal.classList.add('open'); return; }
+      el.startBtn.disabled = true; setStatus('loading', 'запуск'); lock(true); showSource();
+      const c = cfg(); runCfg = c; const r = await api().start(c); await api().save_settings(c);
+      if (!r.ok) { addLog('[error] ' + r.error, 'e'); el.startBtn.disabled = false; lock(false); setStatus('error', 'ошибка'); }
+    } else { el.startBtn.disabled = true; setStatus('loading', 'останавливаю, дописываю очередь'); await api().stop(); }
+  };
+  el.vol.oninput = () => { el.volv.textContent = el.vol.value; if (S.running) api().set_volume(+el.vol.value); };
+  el.cableBtn.onclick = () => { el.cableBtn.disabled = true; addLog('=== своё виртуальное устройство ===', 'b'); (S.cable ? api().rename_cable() : api().install_cable()); };
+  el.refreshBtn.onclick = () => { loadDevices(); loadCams(); };
+  el.file.onclick = () => api().open_recordings();
+  document.getElementById('openRecBtn').onclick = () => api().open_recordings();
+  async function loadJournalCreds() {
+    const c = await api().journal_creds();
+    el.jUser.value = c.username || ''; el.jPass.value = ''; el.jPass.placeholder = c.has_password ? '•••••••• (сохранён, оставь пустым чтобы не менять)' : '';
+  }
+  el.jSave.onclick = async () => {
+    el.jSave.disabled = true; el.jHint.textContent = 'проверяю вход в журнал…';
+    const r = await api().save_journal(el.jUser.value, el.jPass.value);
+    el.jSave.disabled = false;
+    if (r.ok) { el.jHint.textContent = `вход выполнен, пар сегодня: ${r.lessons}`; el.jPass.value = ''; loadJournalCreds(); loadLessons(); }
+    else { el.jHint.textContent = 'ошибка: ' + r.error; }
+  };
+  el.askBtn.onclick = ask; el.askIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ask(); });
+  el.alertTest.onclick = async () => { await api().apply_extras(cfg()); api().test_alert(); toast('🔔 так звучит сигнал'); };
+  el.analyzeBtn.onclick = async () => { await api().apply_extras(cfg()); const r = await api().analyze_now(); if (!r.ok) { addLog('[analyst] ' + r.error, 'e'); el.modal.classList.add('open'); } else addLog('[analyst] запрос отправлен', 'b'); };
+
+  async function loadDevices() {
+    let d = await api().devices();
+    if (d.error || !d.inputs.length) { await new Promise((r) => setTimeout(r, 1500)); d = await api().devices(); }
+    const s = await api().settings();
+    const inLabel = (x) => `${x.loopback ? '⟲ ' : '● '}${x.name}  (${x.rate / 1000} кГц, ${x.channels} кан.)`;
+    el.inp.innerHTML = ''; el.out.innerHTML = '<option value="none">— не играть —</option>'; el.alertDev.innerHTML = '<option value="default">Основное устройство Windows</option>';
+    d.inputs.forEach((x) => { const o = new Option(inLabel(x), x.index); o.dataset.name = x.name; el.inp.add(o); });
+    d.outputs.forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; el.out.add(o);
+      const a = new Option(x.name, x.index); a.dataset.name = x.name; el.alertDev.add(a); });
+    el.mic.innerHTML = '<option value="none">— не писать —</option>';
+    d.inputs.filter((x) => !x.loopback && !/cable|transcriber/i.test(x.name)).forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; o.dataset.def = x.default ? '1' : ''; el.mic.add(o); });
+    S.cable = d.cable;
+    if (d.cable) { el.vdev.classList.add('ok'); el.vdevText.textContent = `своё устройство есть: в Teams выбери вывод «${d.cable.render.name}»`; el.cableBtn.textContent = 'Переименовать устройство'; }
+    else { el.vdev.classList.remove('ok'); el.vdevText.textContent = 'своё виртуальное устройство не установлено (драйвер VB-Cable, ~1 МБ)'; el.cableBtn.textContent = 'Установить своё устройство'; }
+    const pick = (sel, name) => { for (const o of sel.options) if (o.dataset.name === name) { sel.value = o.value; return true; } return false; };
+    if (!pick(el.inp, s.inputName || s.input) && d.cable) pick(el.inp, d.cable.capture.name);
+    pick(el.out, s.outputName || s.output); pick(el.alertDev, s.alertDevName);
+    if (!pick(el.mic, s.micName) && !('micName' in s)) { for (const o of el.mic.options) if (o.dataset.def) { el.mic.value = o.value; break; } }  // first run: Windows default mic
+    if (s.mic_mode) el.micMode.value = s.mic_mode;
+    if (s.volume != null) { el.vol.value = s.volume; el.volv.textContent = s.volume; }
+    if (s.model) el.model.value = s.model; if (s.language) el.lang.value = s.language;
+    ['journal', 'vosk', 'diar'].forEach((k) => { if (k in s) el[k].checked = !!s[k]; });
+    if ('alert_enabled' in s) el.alertOn.checked = !!s.alert_enabled; if (s.alert_names) el.alertNames.value = s.alert_names;
+    if ('llm_enabled' in s) el.llmOn.checked = !!s.llm_enabled; if (s.llm_base) el.llmBase.value = s.llm_base; if (s.llm_model) el.llmModel.value = s.llm_model;
+    if (s.llm_interval) el.llmInterval.value = s.llm_interval; if (s.llm_key) el.llmKey.value = s.llm_key;
+    if ('quick_enabled' in s) el.quickOn.checked = !!s.quick_enabled; if (s.quick_model) el.quickModel.value = s.quick_model; if (s.quick_words) el.quickWords.value = s.quick_words;
+    if (s.vcam_name) el.vcamName.value = s.vcam_name;
+    if (s.proc_mode) el.procMode.value = s.proc_mode;
+    if (s.proc_url) el.procUrl.value = s.proc_url; if (s.proc_token) el.procToken.value = s.proc_token;
+    if (s.proc_model) el.procModel.value = s.proc_model;
+    el.procBox.style.display = el.procMode.value === 'external' ? 'block' : 'none';
+    if ('notify_enabled' in s) el.notifyOn.checked = !!s.notify_enabled; if ('notify_lead' in s) el.notifyLead.value = s.notify_lead;
+    if ('autostart' in s) el.autostart.checked = !!s.autostart; if ('autostop' in s) el.autostop.checked = !!s.autostop;
+    if ('slides_enabled' in s) el.slidesOn.checked = !!s.slides_enabled; if (s.slides_interval) el.slidesInterval.value = s.slides_interval; if (s.slides_threshold) el.slidesThreshold.value = s.slides_threshold;
+    if (d.error) addLog('[error] устройства: ' + d.error, 'e');
+    const miss = [];
+    if ((s.inputName || s.input) && !pick(el.inp, s.inputName || s.input)) miss.push('вход «' + (s.inputName || s.input) + '»');
+    if (s.outputName && el.out.value === 'none') miss.push('выход «' + s.outputName + '»');
+    if (s.micName && el.mic.value === 'none') miss.push('микрофон «' + s.micName + '»');
+    if (miss.length) addLog('[settings] не найдены устройства из настроек: ' + miss.join(', ') + ' (подключи и нажми «Обновить устройства»)', 'e');
+    else addLog('[settings] восстановлено: вход, выход, микрофон, оповещения, анализ', '');
+    showSource();
+  }
+  async function loadLessons() {
+    const j = await api().journal_today();
+    if (!j.ok) { S.lessons = null; el.lessons.textContent = 'журнал недоступен: ' + j.error; return; }
+    S.lessons = j.lessons; renderLessons();
+  }
+  const hm = (t) => { const [h, m] = t.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d; };
+  const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')} мин`; };
+  function renderLessons() {
+    if (!S.lessons) return;
+    if (!S.lessons.length) { el.lessons.textContent = 'сегодня пар нет'; return; }
+    const now = new Date();
+    let nextIdx = -1;
+    S.lessons.forEach((l, i) => { if (nextIdx < 0 && hm(l.start) > now) nextIdx = i; });
+    el.lessons.innerHTML = S.lessons.map((l, i) => {
+      const a = hm(l.start), b = hm(l.end), active = a <= now && now <= b;
+      let cd = '', cls = '';
+      if (active) { cd = `до конца ${dur(b - now)}`; cls = 'cur'; } else if (i === nextIdx) { cd = `через ${dur(a - now)}`; cls = 'next'; }
+      const v = l.visit; let vs = '';
+      if (v) {
+        const wasCls = v.was === 1 ? 'was1' : v.was === 0 ? 'was0' : v.was === 2 ? 'was2' : '';
+        const wasIcon = v.was === 1 ? '✓ ' : v.was === 0 ? '✗ ' : v.was === 2 ? '⏰ ' : '';
+        vs = `<div class="vs"><span class="tag ${wasCls}">${wasIcon}${esc(v.was_text)}</span>` +
+             Object.entries(v.marks || {}).map(([k, m]) => `<span class="tag mark">${k} ${m}</span>`).join('') + `</div>` +
+             (v.theme ? `<div class="th">${esc(v.theme)}</div>` : '');
+      } else if (active || a < now) { vs = `<div class="vs"><span class="tag">нет отметки</span></div>`; }
+      return `<div class="lesson ${cls}"><div class="tm">${l.start}–${l.end}${cd ? `<span class="cd">${cd}</span>` : ''}</div><div class="nm">${esc(l.subject)}</div><div class="tc">${esc(l.teacher)}</div>${vs}</div>`;
+    }).join('');
+  }
+  async function init() {
+    await loadDevices(); loadLessons(); loadJournalCreds(); setInterval(loadLessons, 5 * 60 * 1000); setInterval(renderLessons, 20 * 1000);
+    const r = await api().apply_extras(cfg()); if (r.analyst) { const st = await api().analysis_state(); renderSummary(st); }
+    try { renderVcam(Object.assign(await api().vcam_status(), { file: (await api().settings()).vcam_file })); } catch (e) {}
+    loadCams();
+    if (!el.inp.value) el.modal.classList.add('open');
+  }
+  window.addEventListener('pywebviewready', init);
+
+  // ------------------------------------------------------------------ mock feed (open ui/index.html?mock in a browser)
+  if (MOCK) {
+    const mockApi = { devices: async () => ({ inputs: [{ index: 1, name: 'Teams transcriber (захват) (VB-Audio Virtual Cable)', rate: 48000, channels: 2, loopback: false }, { index: 3, name: 'Микрофон (Arctis Nova Pro)', rate: 48000, channels: 2, loopback: false }], outputs: [{ index: 2, name: 'SteelSeries Sonar - Aux', rate: 96000, channels: 8, default: false }, { index: 4, name: 'SteelSeries Sonar - Gaming', rate: 96000, channels: 8, default: true }], cable: { capture: { name: 'Teams transcriber (захват) (VB-Audio Virtual Cable)' }, render: { name: 'Teams transcriber' } } }),
+      settings: async () => ({ alert_names: 'Кирилл, Кир', micName: 'Микрофон (Arctis Nova Pro)' }), save_settings: async () => true, set_volume: async () => true, open_recordings: async () => true,
+      ask: async (q) => { setTimeout(() => window.__evt({ kind: 'answer', ok: true, q, a: 'По транскрипту: преподаватель просил подготовить демонстрацию для заказчика ко вторнику и проверить репликацию БД.' }), 1500); return { ok: true }; },
+      make_report: async (fmt) => ({ ok: true, path: 'recordings\\Демо\\2026-09-03_10-00\\конспект.' + fmt }),
+      proc_test: async () => ({ ok: true, model: 'large-v3-turbo', device: 'cuda', cuda: true, cores: 16, threads: 8, compute_type: 'float16', allowed_models: ['large-v3', 'large-v3-turbo', 'medium', 'small'], allow_model_switch: true, max_beam: 5 }),
+      cam_devices: async () => ([{ index: 0, name: 'ManyCam Virtual Webcam', virtual: true }, { index: 1, name: 'Logi C270 HD WebCam', virtual: false }]),
+      cam_record: async (i, s) => { let left = s; const t = setInterval(() => { window.__evt({ kind: 'camrec', state: left > 0 ? 'recording' : 'done', left, total: s, size: '1280x720', fps: 30, file: 'C:/rec.mp4', seconds: s }); if (left-- <= 0) clearInterval(t); }, 1000); return { ok: true }; },
+      vcam_status: async () => ({ on: false, file: null, available: ['Unity Video Capture'] }), vcam_toggle: async () => ({ on: true, device: 'Unity Video Capture', file: 'C:/demo.mp4', fps: 30 }), vcam_pick: async () => ({ ok: true, file: 'C:/demo.mp4' }),
+      apply_extras: async () => ({ alert: true, analyst: true }), journal_creds: async () => ({ username: 'student', has_password: true }), save_journal: async () => ({ ok: true, lessons: 2 }), analysis_state: async () => null, analyze_now: async () => ({ ok: true }), test_alert: async () => true,
+      journal_today: async () => ({ ok: true, lessons: [{ subject: 'Разработка веб-приложений ASP.NET', teacher: 'Якубаш Н. А.', room: '36', start: '10:00', end: '11:20', current: false, visit: { was: 1, was_text: 'был', marks: { 'ДЗ': 5 }, theme: 'Модуль 2. Основы ASP.NET Core' } }, { subject: 'Безопасность жизнедеятельности', teacher: 'Горбич И. Д.', room: 'Общая', start: '13:30', end: '14:50', current: false, visit: null }] }),
+      start: async () => { runMock(); return { ok: true }; }, stop: async () => { clearInterval(mockTimer); window.__evt({ kind: 'stopped' }); return { ok: true }; },
+      install_cable: async () => true, rename_cable: async () => true };
+    window.pywebview = { api: mockApi };
+    let mockTimer;
+    const SENT = ['добрый день коллеги давайте начнём встречу с обсуждения статуса по проекту миграции', 'на прошлой неделе мы закончили перенос базы данных осталось проверить репликацию', 'кирилл а ты что думаешь про нагрузочные тесты', 'тогда во вторник проведём демонстрацию для заказчика и обсудим сроки релиза'];
+    const FIN = ['Добрый день, коллеги. Давайте начнём встречу с обсуждения статуса по проекту миграции.', 'На прошлой неделе мы закончили перенос базы данных, осталось проверить репликацию.', 'Кирилл, а ты что думаешь про нагрузочные тесты?', 'Тогда во вторник проведём демонстрацию для заказчика и обсудим сроки релиза.'];
+    function runMock() {
+      window.__evt({ kind: 'log', text: '[init] loading whisper ...' });
+      setTimeout(() => window.__evt({ kind: 'started', file: 'recordings\\Демо_2026-09-03_10-00.txt', info: 'in-lesson: 10:00-11:20 Демо' }), 800);
+      setTimeout(() => window.__evt({ kind: 'teams_mic', in_call: true, mic_on: true }), 1200);
+      setTimeout(() => window.__evt({ kind: 'sharing', sharing: true, presenter: 'Удалов Андрей' }), 1500);
+      setTimeout(() => window.__evt({ kind: 'slide', path: 'C:/Users/root/PycharmProjects/teams-transcriber/slides_test/slides/09-43-54.png', t: Date.now() / 1000, n: 1, presenter: 'Удалов Андрей', w: 1279, h: 873 }), 3000);
+      const h0 = Date.now() / 1000 - 1800;
+      setTimeout(() => window.__evt({ kind: 'history', items: [{ t0: h0, t1: h0 + 4, speaker: 'SPEAKER_00', text: 'Начинаем пару, сегодня маршрутизация в ASP.NET.', source: 'teams' }, { t0: h0 + 60, t1: h0 + 65, speaker: 'Вы', text: 'А контроллеры мы уже писали?', source: 'mic' }] }), 900);
+      setTimeout(() => window.__evt({ kind: 'analysis', topic: 'Миграция базы данных и нагрузочное тестирование API Gateway', task: 'Подготовить демонстрацию для заказчика ко вторнику', deadline: 'вторник', points: ['Перенос БД завершён, осталась репликация', 'API Gateway на стейджинге, идут нагрузочные тесты'], updated: Date.now() / 1000, tokens: 812 }), 9000);
+      let i = 0;
+      const step = () => {
+        const k = i % SENT.length, ws = SENT[k].split(' '), t0 = Date.now() / 1000;
+        let j = 0;
+        const typer = setInterval(() => { j++; const ping = k === 2 && j === 1 ? 'кирилл' : undefined; window.__evt({ kind: 'partial', text: ws.slice(0, j).join(' '), t: Date.now() / 1000, ping }); window.__evt({ kind: 'level', v: 0.1 + Math.random() * 0.2, mic: 0.05, backlog: 0 });
+          if (j >= ws.length) { clearInterval(typer); const t1 = Date.now() / 1000;
+            window.__evt({ kind: 'draft', text: SENT[k], t0, t1, words: ws.map((w, n) => ({ w, t0: t0 + n * (t1 - t0) / ws.length, t1: t0 + (n + 1) * (t1 - t0) / ws.length })) });
+            if (k === 2) { window.__evt({ kind: 'quick', word: 'Кирилл', pending: true }); setTimeout(() => window.__evt({ kind: 'quick', ok: true, word: 'Кирилл', question: 'Что ты думаешь про нагрузочные тесты API Gateway?', answer: 'Скажи, что тесты идут на стейджинге, узкое место пока БД, после проверки репликации можно повышать нагрузку.', confidence: 0.8, latency: 2.1, tokens: 310 }), 2500); }
+            setTimeout(() => window.__evt({ kind: 'final', t0, t1, speaker: k === 3 ? 'Вы' : 'SPEAKER_0' + (k % 2), source: k === 3 ? 'mic' : 'teams', text: FIN[k], ping: k === 2 ? 'Кирилл' : undefined }), 4500); } }, 180);
+        i++;
+      };
+      step(); mockTimer = setInterval(step, 6500);
+    }
+    init();
+  }
+})();
+</script>
+</body>
+</html>
