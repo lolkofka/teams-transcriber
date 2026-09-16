@@ -5,6 +5,8 @@
 умеет подменять веб-камеру роликом. Всё на Python 3.11 в `.venv`, интерфейс на pywebview (Edge WebView2).
 Подробности по каждой функции в `README.md`, эта записка про устройство и текущее состояние.
 
+Репозиторий: https://github.com/lolkofka/teams-transcriber (private, ветка `main`; секреты, записи, модели и сборки в `.gitignore`).
+
 ## Как запускать
 
 - `app.bat` (или ярлык «Teams transcriber» на рабочем столе) — основное окно. Процесс `pythonw.exe app.py`.
