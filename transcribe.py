@@ -26,7 +26,7 @@ import warnings
 
 import numpy as np
 
-from paths import BASE_DIR
+from paths import BASE_DIR, RESOURCE_DIR
 
 warnings.filterwarnings("ignore")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -69,6 +69,14 @@ SR = 16000  # internal sample rate
 PA_LOCK = threading.Lock()  # PortAudio/WASAPI device enumeration and stream opening are not thread-safe: serialize them
 
 
+def _pyaudio():
+    if sys.platform == "darwin":
+        import pyaudio
+    else:
+        import pyaudiowpatch as pyaudio
+    return pyaudio
+
+
 def _lowpass_fir(cutoff, fs, taps=97):
     n = np.arange(taps) - (taps - 1) / 2
     h = np.sinc(2 * cutoff / fs * n) * np.hamming(taps)
@@ -79,13 +87,19 @@ class Decimator:
     """Integer-ratio downsampler (48k/96k -> 16k) with a windowed-sinc anti-alias filter, streaming-safe."""
 
     def __init__(self, in_sr, out_sr):
-        assert in_sr % out_sr == 0, f"unsupported rate {in_sr}"
-        self.ratio = in_sr // out_sr
-        self.h = _lowpass_fir(out_sr * 0.45, in_sr, taps=64 * self.ratio + 1)
-        self.tail = np.zeros(len(self.h) - 1, dtype=np.float32)
+        self.in_sr, self.out_sr = in_sr, out_sr
+        self.ratio = in_sr // out_sr if in_sr % out_sr == 0 else None
+        if self.ratio is not None:
+            self.h = _lowpass_fir(out_sr * 0.45, in_sr, taps=64 * self.ratio + 1)
+            self.tail = np.zeros(len(self.h) - 1, dtype=np.float32)
         self.phase = 0
 
     def __call__(self, x):
+        if self.ratio is None:
+            from scipy.signal import resample_poly
+            from math import gcd
+            g = gcd(self.in_sr, self.out_sr)
+            return resample_poly(x, self.out_sr // g, self.in_sr // g).astype(np.float32)
         if self.ratio == 1:
             return x
         buf = np.concatenate([self.tail, x])
@@ -97,7 +111,12 @@ class Decimator:
 
 
 def list_loopback_devices():
-    import pyaudiowpatch as pyaudio
+    if sys.platform == "darwin":
+        print("CoreAudio input devices (choose BlackHole or another virtual audio input):")
+        for d in list_input_devices():
+            print(f"  [{d['index']:>2}] {d['name']}  ({d['rate']} Hz, {d['channels']} ch)")
+        return
+    pyaudio = _pyaudio()
     p = pyaudio.PyAudio()
     try:
         wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)
@@ -112,7 +131,7 @@ def list_loopback_devices():
 
 def list_input_devices():
     """WASAPI capture endpoints: loopbacks of every output device plus real inputs (mics, virtual cables)."""
-    import pyaudiowpatch as pyaudio
+    pyaudio = _pyaudio()
     with PA_LOCK:
         return _list_input_devices(pyaudio)
 
@@ -121,14 +140,14 @@ def _list_input_devices(pyaudio):
     p = pyaudio.PyAudio()
     out = []
     try:
-        wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+        host = p.get_host_api_info_by_type(pyaudio.paCoreAudio if sys.platform == "darwin" else pyaudio.paWASAPI)
         for i in range(p.get_device_count()):
             d = p.get_device_info_by_index(i)
-            if d["hostApi"] != wasapi["index"] or d["maxInputChannels"] <= 0:
+            if d["hostApi"] != host["index"] or d["maxInputChannels"] <= 0:
                 continue
             out.append({"index": i, "name": d["name"], "rate": int(d["defaultSampleRate"]),
                         "channels": int(d["maxInputChannels"]), "loopback": bool(d.get("isLoopbackDevice")),
-                        "default": i == wasapi["defaultInputDevice"]})
+                        "default": i == host["defaultInputDevice"]})
     finally:
         p.terminate()
     out.sort(key=lambda d: (not d["loopback"], d["name"].lower()))
@@ -136,7 +155,7 @@ def _list_input_devices(pyaudio):
 
 
 def list_output_devices():
-    import pyaudiowpatch as pyaudio
+    pyaudio = _pyaudio()
     with PA_LOCK:
         return _list_output_devices(pyaudio)
 
@@ -145,13 +164,13 @@ def _list_output_devices(pyaudio):
     p = pyaudio.PyAudio()
     out = []
     try:
-        wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+        host = p.get_host_api_info_by_type(pyaudio.paCoreAudio if sys.platform == "darwin" else pyaudio.paWASAPI)
         for i in range(p.get_device_count()):
             d = p.get_device_info_by_index(i)
-            if d["hostApi"] != wasapi["index"] or d["maxOutputChannels"] <= 0 or d.get("isLoopbackDevice"):
+            if d["hostApi"] != host["index"] or d["maxOutputChannels"] <= 0 or d.get("isLoopbackDevice"):
                 continue
             out.append({"index": i, "name": d["name"], "rate": int(d["defaultSampleRate"]),
-                        "channels": int(d["maxOutputChannels"]), "default": i == wasapi["defaultOutputDevice"]})
+                        "channels": int(d["maxOutputChannels"]), "default": i == host["defaultOutputDevice"]})
     finally:
         p.terminate()
     out.sort(key=lambda d: d["name"].lower())
@@ -163,7 +182,7 @@ class Monitor(threading.Thread):
 
     def __init__(self, p, out_index, in_rate, volume=1.0):
         super().__init__(daemon=True)
-        import pyaudiowpatch as pyaudio
+        pyaudio = _pyaudio()
         d = p.get_device_info_by_index(out_index)
         self.name = d["name"]
         self.rate = int(d["defaultSampleRate"])
@@ -220,7 +239,16 @@ class Monitor(threading.Thread):
 
 
 def pick_loopback_device(p, substring):
-    import pyaudiowpatch as pyaudio
+    pyaudio = _pyaudio()
+    if sys.platform == "darwin":
+        host = p.get_host_api_info_by_type(pyaudio.paCoreAudio)
+        if substring:
+            for i in range(p.get_device_count()):
+                d = p.get_device_info_by_index(i)
+                if d["hostApi"] == host["index"] and d["maxInputChannels"] > 0 and substring.lower() in d["name"].lower():
+                    return d
+            raise SystemExit(f"No input device matching '{substring}'. Use --list-devices.")
+        return p.get_device_info_by_index(host["defaultInputDevice"])
     wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)
     if substring:
         for d in p.get_loopback_device_info_generator():
@@ -382,7 +410,7 @@ class Recorder(threading.Thread):
         self.error = None
 
     def run(self):
-        import pyaudiowpatch as pyaudio
+        pyaudio = _pyaudio()
 
         PA_LOCK.acquire()
         locked = True
@@ -1029,7 +1057,7 @@ class Pipeline:
 
         vosk_path = None
         if not args.no_vosk:
-            here = os.path.join(BASE_DIR, "models")
+            here = os.path.join(RESOURCE_DIR if os.path.isdir(os.path.join(RESOURCE_DIR, "models", "vosk-model-small-ru-0.22")) else BASE_DIR, "models")
             if args.vosk_model:
                 vosk_path = args.vosk_model
             elif args.language.lower() == "ru":
@@ -1059,6 +1087,8 @@ class Pipeline:
         self.mic_rec = self.mic_seg = self.watcher = None
         if mic_dev is not None and mic_mode != "off" and not args.file:
             gate = None
+            if mic_mode == "teams" and sys.platform != "win32":
+                mic_mode = "always"
             if mic_mode == "teams":
                 from teams_mic import TeamsMicWatcher
 

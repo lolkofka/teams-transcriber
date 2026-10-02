@@ -516,7 +516,7 @@
     else if (st.file) el.vcamHint.textContent = base(st.file) + (st.available && st.available.length ? ' · ' + st.available.join(', ') : ' · нет драйвера камеры');
     else el.vcamHint.textContent = 'видео не выбрано' + (st.available && !st.available.length ? ' · нет драйвера камеры' : '');
     const noDriver = !st.on && Array.isArray(st.available) && !st.available.length;
-    el.vcamInstall.style.display = noDriver ? 'block' : 'none';
+    el.vcamInstall.style.display = noDriver && S.platform !== 'darwin' ? 'block' : 'none';
   }
   // ---- record a clip from the physical camera (settings) with a visible countdown
   async function loadCams() {
@@ -737,22 +737,31 @@
   async function loadDevices() {
     let d = await api().devices();
     if (d.error || !d.inputs.length) { await new Promise((r) => setTimeout(r, 1500)); d = await api().devices(); }
+    S.platform = d.platform || 'win32';
+    if (S.platform === 'darwin') {
+      el.cableBtn.style.display = 'none';
+      el.slidesOn.checked = false; el.slidesOn.disabled = true;
+      el.slidesOn.closest('.card').querySelector('.hint').textContent = 'Автоматический захват слайдов доступен только в Windows.';
+      el.micMode.querySelector('option[value="teams"]').disabled = true;
+      el.vcamInstall.style.display = 'none'; el.vcamRename.style.display = 'none';
+    }
     const s = await api().settings();
     const inLabel = (x) => `${x.loopback ? '⟲ ' : '● '}${x.name}  (${x.rate / 1000} кГц, ${x.channels} кан.)`;
-    el.inp.innerHTML = ''; el.out.innerHTML = '<option value="none">— не играть —</option>'; el.alertDev.innerHTML = '<option value="default">Основное устройство Windows</option>';
+    el.inp.innerHTML = ''; el.out.innerHTML = '<option value="none">— не играть —</option>'; el.alertDev.innerHTML = `<option value="default">Основное устройство ${S.platform === 'darwin' ? 'macOS' : 'Windows'}</option>`;
     d.inputs.forEach((x) => { const o = new Option(inLabel(x), x.index); o.dataset.name = x.name; el.inp.add(o); });
     d.outputs.forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; el.out.add(o);
       const a = new Option(x.name, x.index); a.dataset.name = x.name; el.alertDev.add(a); });
     el.mic.innerHTML = '<option value="none">— не писать —</option>';
-    d.inputs.filter((x) => !x.loopback && !/cable|transcriber/i.test(x.name)).forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; o.dataset.def = x.default ? '1' : ''; el.mic.add(o); });
+    d.inputs.filter((x) => !x.loopback && !/cable|transcriber|blackhole/i.test(x.name)).forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; o.dataset.def = x.default ? '1' : ''; el.mic.add(o); });
     S.cable = d.cable;
-    if (d.cable) { el.vdev.classList.add('ok'); el.vdevText.textContent = `своё устройство есть: в Teams выбери вывод «${d.cable.render.name}»`; el.cableBtn.textContent = 'Переименовать устройство'; }
-    else { el.vdev.classList.remove('ok'); el.vdevText.textContent = 'своё виртуальное устройство не установлено (драйвер VB-Cable, ~1 МБ)'; el.cableBtn.textContent = 'Установить своё устройство'; }
+    if (d.cable) { el.vdev.classList.add('ok'); el.vdevText.textContent = `${S.platform === 'darwin' ? 'BlackHole найден' : 'своё устройство есть'}: в Teams выбери вывод «${d.cable.render.name}»`; el.cableBtn.textContent = 'Переименовать устройство'; }
+    else { el.vdev.classList.remove('ok'); el.vdevText.textContent = S.platform === 'darwin' ? 'Для записи звука Teams установите BlackHole 2ch, затем выберите его как вывод Teams и вход программы.' : 'своё виртуальное устройство не установлено (драйвер VB-Cable, ~1 МБ)'; el.cableBtn.textContent = 'Установить своё устройство'; }
     const pick = (sel, name) => { for (const o of sel.options) if (o.dataset.name === name) { sel.value = o.value; return true; } return false; };
     if (!pick(el.inp, s.inputName || s.input) && d.cable) pick(el.inp, d.cable.capture.name);
     pick(el.out, s.outputName || s.output); pick(el.alertDev, s.alertDevName);
     if (!pick(el.mic, s.micName) && !('micName' in s)) { for (const o of el.mic.options) if (o.dataset.def) { el.mic.value = o.value; break; } }  // first run: Windows default mic
     if (s.mic_mode) el.micMode.value = s.mic_mode;
+    if (S.platform === 'darwin' && el.micMode.value === 'teams') el.micMode.value = 'always';
     if (s.volume != null) { el.vol.value = s.volume; el.volv.textContent = s.volume; }
     if (s.model) el.model.value = s.model; if (s.language) el.lang.value = s.language;
     ['journal', 'vosk', 'diar'].forEach((k) => { if (k in s) el[k].checked = !!s[k]; });
@@ -768,6 +777,7 @@
     if ('notify_enabled' in s) el.notifyOn.checked = !!s.notify_enabled; if ('notify_lead' in s) el.notifyLead.value = s.notify_lead;
     if ('autostart' in s) el.autostart.checked = !!s.autostart; if ('autostop' in s) el.autostop.checked = !!s.autostop;
     if ('slides_enabled' in s) el.slidesOn.checked = !!s.slides_enabled; if (s.slides_interval) el.slidesInterval.value = s.slides_interval; if (s.slides_threshold) el.slidesThreshold.value = s.slides_threshold;
+    if (S.platform === 'darwin') el.slidesOn.checked = false;
     if (d.error) addLog('[error] устройства: ' + d.error, 'e');
     const miss = [];
     if ((s.inputName || s.input) && !pick(el.inp, s.inputName || s.input)) miss.push('вход «' + (s.inputName || s.input) + '»');

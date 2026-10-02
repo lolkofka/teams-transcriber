@@ -1,0 +1,42 @@
+name: macOS ARM build
+
+on:
+  push:
+    branches: [codex/mac-arm-build]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15-arm64
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: arm64
+      - name: Install PortAudio and Python dependencies
+        run: |
+          brew install portaudio
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-macos.txt
+      - name: Build application
+        run: |
+          curl --fail --location --retry 3 --output /tmp/vosk-model.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+          mkdir -p models
+          unzip -q /tmp/vosk-model.zip -d models
+          python -m PyInstaller --noconfirm --clean TeamsTranscriber-macos.spec
+      - name: Verify bundle
+        run: |
+          test "$(uname -m)" = arm64
+          lipo -archs dist/TeamsTranscriber.app/Contents/MacOS/TeamsTranscriber | grep -w arm64
+          dist/TeamsTranscriber.app/Contents/MacOS/TeamsTranscriber --bundle-smoke
+          codesign --verify --deep --strict dist/TeamsTranscriber.app
+      - name: Package application
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/TeamsTranscriber.app dist/TeamsTranscriber-macos-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TeamsTranscriber-macos-arm64
+          path: dist/TeamsTranscriber-macos-arm64.zip
+          if-no-files-found: error

@@ -6,6 +6,7 @@ Name alert: when someone in the call says your name, play a chime on the chosen 
 """
 
 import re
+import sys
 import threading
 import time
 
@@ -69,13 +70,14 @@ class NameAlert:
 
     def _play(self):
         try:
-            import pyaudiowpatch as pyaudio
-            from transcribe import PA_LOCK
+            from transcribe import PA_LOCK, _pyaudio
+            pyaudio = _pyaudio()
             with PA_LOCK:
                 p = pyaudio.PyAudio()
                 try:
                     if self.device_index is None:
-                        idx = p.get_host_api_info_by_type(pyaudio.paWASAPI)["defaultOutputDevice"]
+                        api_type = pyaudio.paCoreAudio if sys.platform == "darwin" else pyaudio.paWASAPI
+                        idx = p.get_host_api_info_by_type(api_type)["defaultOutputDevice"]
                     else:
                         idx = int(self.device_index)
                     d = p.get_device_info_by_index(idx)

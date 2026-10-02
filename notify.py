@@ -9,6 +9,8 @@ get_lessons() -> list of dicts with datetime "start"/"end" and "subject" (journa
 import datetime as dt
 import threading
 import time
+import sys
+import subprocess
 
 from paths import BASE_DIR
 import os
@@ -17,6 +19,15 @@ ICON = os.path.join(BASE_DIR, "ui", "icon.ico")
 
 
 def toast(title, text):
+    if sys.platform == "darwin":
+        try:
+            # Pass strings as argv so notification text cannot be interpreted as AppleScript.
+            subprocess.run(["osascript", "-e", "on run argv", "-e",
+                            "display notification (item 2 of argv) with title (item 1 of argv)",
+                            "-e", "end run", title, text], check=True, capture_output=True)
+            return True
+        except Exception:
+            return False
     try:
         from winotify import Notification, audio
         n = Notification(app_id="Teams transcriber", title=title, msg=text, icon=ICON if os.path.exists(ICON) else "", duration="long")

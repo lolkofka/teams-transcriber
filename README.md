@@ -235,6 +235,8 @@ python -m venv .venv
 
 Модели (~1.6 ГБ Whisper + 80 МБ ECAPA) скачиваются при первом запуске в `%USERPROFILE%\.cache\huggingface` и `models\`.
 
+Сборка для Mac с Apple Silicon: [README-macos.md](README-macos.md).
+
 ## Сборка exe (чтобы отдать другому человеку)
 
 ```bat

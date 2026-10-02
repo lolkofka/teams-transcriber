@@ -18,7 +18,7 @@ import time
 import traceback
 import types
 
-from paths import BASE_DIR as HERE, FROZEN  # noqa: E402
+from paths import BASE_DIR as HERE, RESOURCE_DIR, FROZEN  # noqa: E402
 os.chdir(HERE)
 sys.path.insert(0, HERE)
 SETTINGS = os.path.join(HERE, "gui_settings.json")
@@ -190,11 +190,11 @@ class Api:
             self._inputs = T.list_input_devices()
             self._outputs = T.list_output_devices()
             cap, ren = vcable.find(self._inputs, self._outputs)
-            return {"inputs": self._inputs, "outputs": self._outputs,
+            return {"platform": sys.platform, "inputs": self._inputs, "outputs": self._outputs,
                     "cable": {"capture": cap, "render": ren} if cap and ren else None}
         except Exception as e:
             log_exc()
-            return {"inputs": [], "outputs": [], "cable": None, "error": str(e)}
+            return {"platform": sys.platform, "inputs": [], "outputs": [], "cable": None, "error": str(e)}
 
     def settings(self):
         try:
@@ -272,7 +272,7 @@ class Api:
 
     def open_recordings(self):
         os.makedirs(os.path.join(HERE, "recordings"), exist_ok=True)
-        os.startfile(os.path.join(HERE, "recordings"))
+        _open_path(os.path.join(HERE, "recordings"))
         return True
 
     # ---------------------------------------------------------------- alerts + analyst
@@ -488,7 +488,7 @@ class Api:
 
     def _start_slides(self, folder):
         cfg = self._cfg
-        if not cfg.get("slides_enabled", True):
+        if sys.platform != "win32" or not cfg.get("slides_enabled", True):
             return
         try:
             self._slides = SlideCapture(
@@ -590,7 +590,7 @@ class Api:
             out = report.build(folder, fmt)
             first = out[0] if isinstance(out, tuple) else out
             try:
-                os.startfile(first)
+                _open_path(first)
             except Exception:
                 pass
             return {"ok": True, "path": first, "all": list(out) if isinstance(out, tuple) else [out]}
@@ -644,12 +644,22 @@ class Api:
 
 
 APP_TITLE = "Teams transcriber"
-ICON = os.path.join(HERE, "ui", "icon.ico")
+ICON = os.path.join(RESOURCE_DIR, "ui", "icon.ico")
+
+
+def _open_path(path):
+    if sys.platform == "darwin":
+        import subprocess
+        subprocess.Popen(["open", path])
+    else:
+        os.startfile(path)
 
 
 def _brand_window():
     """Own taskbar identity: without an explicit AppUserModelID Windows maps pythonw.exe windows onto the
     'IDLE (Python ...)' Start-menu shortcut (its icon and name). Also put our icon on the window."""
+    if sys.platform != "win32":
+        return
     import ctypes
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TeamsTranscriber.App")
@@ -691,7 +701,7 @@ def main():
     api = Api()
     _raise_priority()
     _brand_window()
-    window = webview.create_window(APP_TITLE, os.path.join(HERE, "ui", "index.html"), js_api=api,
+    window = webview.create_window(APP_TITLE, os.path.join(RESOURCE_DIR, "ui", "index.html"), js_api=api,
                                    width=1240, height=800, min_size=(900, 600), background_color="#0f1117",
                                    text_select=True)  # allow selecting/copying text; the page limits it to text areas
     api.attach(window)
@@ -711,6 +721,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--bundle-smoke" in sys.argv:
+        assert os.path.isfile(os.path.join(RESOURCE_DIR, "ui", "index.html"))
+        assert os.path.isfile(os.path.join(RESOURCE_DIR, "test_meeting.wav"))
+        sys.exit(0)
     if "--rename-cable" in sys.argv:          # elevated helper mode (frozen build): rename the virtual cable endpoints
         import runpy
         sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--rename-cable"]
@@ -718,7 +732,7 @@ if __name__ == "__main__":
         sys.exit(0)
     if "--selftest" in sys.argv:              # headless check of the bundled pipeline on a wav (writes selftest.log)
         import types as _t
-        wav = next((a for a in sys.argv[1:] if a.lower().endswith(".wav")), os.path.join(HERE, "test_meeting.wav"))
+        wav = next((a for a in sys.argv[1:] if a.lower().endswith(".wav")), os.path.join(RESOURCE_DIR, "test_meeting.wav"))
         with open(os.path.join(HERE, "selftest.log"), "w", encoding="utf-8") as f:
             class _S:
                 def event(self, k, p): f.write(f"{k}: {json.dumps(p, ensure_ascii=False)[:160]}\n"); f.flush()

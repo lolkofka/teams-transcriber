@@ -1,6 +1,13 @@
-"""Base directory of the app: the source folder when run from Python, the folder with the .exe when frozen."""
+"""Writable app data and bundled read-only resources."""
 import os
 import sys
 
 FROZEN = bool(getattr(sys, "frozen", False))
-BASE_DIR = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else os.path.dirname(os.path.abspath(__file__))
+RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+if FROZEN and sys.platform == "darwin":
+    BASE_DIR = os.path.expanduser("~/Library/Application Support/TeamsTranscriber")
+    os.makedirs(BASE_DIR, exist_ok=True)
+elif FROZEN:
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))

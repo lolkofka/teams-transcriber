@@ -174,7 +174,7 @@ class CamRecorder(threading.Thread):
 
     def run(self):
         import cv2
-        cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW)
+        cap = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_DSHOW)
         if not cap.isOpened():
             self.result = {"ok": False, "error": "камера не открывается: занята другим приложением (Teams, ManyCam) или отключена"}
             self.on_progress(dict(self.result, state="error")); return
@@ -227,6 +227,8 @@ DEFAULT_NAME = "HD Web Camera"
 def install_unity_capture(log=print, name=None):
     """Register the UnityCapture DirectShow filter under a custom device name (UAC prompt). Re-running with another
     name re-registers the filter: the old device disappears, the new one appears (Teams lists it under that name)."""
+    if sys.platform != "win32":
+        raise RuntimeError("UnityCapture доступен только в Windows; на macOS установите OBS Virtual Camera")
     dest = os.path.join(BASE_DIR, "unitycapture")
     os.makedirs(dest, exist_ok=True)
     dll = None

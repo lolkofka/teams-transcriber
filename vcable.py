@@ -41,6 +41,10 @@ def find(inputs=None, outputs=None):
     import transcribe as T
     inputs = inputs if inputs is not None else T.list_input_devices()
     outputs = outputs if outputs is not None else T.list_output_devices()
+    if sys.platform == "darwin":
+        cap = next((d for d in inputs if "blackhole" in d["name"].lower()), None)
+        ren = next((d for d in outputs if "blackhole" in d["name"].lower()), None)
+        return cap, ren
     cap = next((d for d in inputs if not d["loopback"] and (OUR_CAPTURE in d["name"] or STOCK_CAPTURE in d["name"])), None)
     ren = next((d for d in outputs if OUR_RENDER in d["name"] or STOCK_RENDER in d["name"]), None)
     return cap, ren
@@ -72,6 +76,8 @@ def run_installer(exe, log=print):
 def rename_endpoints(log=print):
     """Rename the cable endpoints to our names the way the Sound control panel does (IPropertyStore.SetValue).
     Needs an elevated process, so vcable_rename.py is launched via UAC and reports through vcable_rename.log."""
+    if sys.platform != "win32":
+        raise RuntimeError("Переименование виртуального устройства доступно только в Windows")
     here = BASE_DIR
     logp = os.path.join(here, "vcable_rename.log")
     try:
@@ -98,6 +104,8 @@ def rename_endpoints(log=print):
 
 
 def install(log=print):
+    if sys.platform != "win32":
+        raise RuntimeError("На macOS установите BlackHole 2ch и выберите его как вывод Teams")
     here = BASE_DIR
     exe = download(os.path.join(here, "vbcable"), log)
     run_installer(exe, log)
