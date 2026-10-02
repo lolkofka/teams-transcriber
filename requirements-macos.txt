@@ -4,9 +4,9 @@ PyAudio==0.2.14
 scipy
 silero-vad
 speechbrain
-torch
-torchaudio
-vosk==0.3.45
+torch==2.11.0
+torchaudio==2.11.0
+vosk==0.3.44
 pywebview
 pyobjc-core
 pyobjc-framework-Cocoa
