@@ -12,7 +12,7 @@ for pkg in ("faster_whisper", "ctranslate2", "speechbrain", "silero_vad", "vosk"
     except Exception as e:  # optional packages
         print("collect_all skipped:", pkg, e)
 hiddenimports += collect_submodules("pyaudiowpatch")
-hiddenimports += ["journal", "teams_mic", "alerts", "analyst", "vcable", "vcable_rename", "transcribe", "paths", "vcam", "slides", "report", "notify",
+hiddenimports += ["journal", "teams_mic", "teams_auto", "teams_browser", "alerts", "analyst", "vcable", "vcable_rename", "transcribe", "paths", "vcam", "slides", "report", "notify",
                   "speechbrain.inference.speaker", "torchaudio.functional", "silero_vad.utils_vad"]
 
 a = Analysis(

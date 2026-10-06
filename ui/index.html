@@ -210,6 +210,7 @@
   <span id="sharing" class="pill" style="display:none"><span class="led"></span><span id="sharingText"></span></span>
   <span id="camrecPill" class="pill rec" style="display:none"><span class="led"></span><span id="camrecText"></span></span>
   <div id="file" class="file" title="открыть папку recordings"></div>
+  <button id="teamsBtn" class="btn sm" title="Открыть Teams во встроенном окне WebView2">Открыть Teams</button>
   <button id="gear" class="icon" title="Настройки">⚙</button>
 </header>
 <main>
@@ -346,6 +347,10 @@
         <label class="tgl" style="margin-top:10px"><input type="checkbox" id="autostart" checked> Автоматически запускать запись в начале пары (если уже пишет, перезапустить в папку новой пары)</label>
         <label class="tgl"><input type="checkbox" id="autostop"> Автоматически останавливать запись в конце пары</label>
         <div class="hint">Расписание берётся из журнала, проверяется каждые 15 секунд, работает и без запущенной записи. Сигнал идёт на устройство из «Оповещение».</div>
+        <h3 style="margin-top:18px">Собрания Teams</h3>
+        <label class="tgl"><input type="checkbox" id="teamsAutoJoin" checked> Входить в собрание в начале пары из расписания top-academy</label>
+        <label class="tgl"><input type="checkbox" id="teamsAutoLeave" checked> Выходить после окончания пары, прощания и ухода остальных участников</label>
+        <div class="hint">Windows: приложение сопоставляет время пары со ссылкой в календаре Teams. Перед входом проверяет, что микрофон и камера выключены. Если встреча или состояние устройств не определены однозначно, вход отменяется. Для автовыхода нужны одновременно три условия: время окончания, фраза прощания в записи и один участник в Teams.</div>
       </div>
       <div class="card">
         <h3>Виртуальная камера</h3>
@@ -401,10 +406,10 @@
   const el = {};
   ['inp','out','vol','volv','model','lang','journal','vosk','diar','startBtn','cableBtn','refreshBtn','vdev','vdevText','status','statusText',
    'meter','backlog','file','stream','scroll','live','caret','toBottom','lessons','log','empty','stats','mic','micMode','micState','micMeter','micRow',
-   'gear','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast',
+   'gear','teamsBtn','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast',
    'alertOn','alertNames','alertDev','alertTest','llmOn','llmBase','llmModel','llmInterval','llmKey','jUser','jPass','jSave','jHint','askIn','askBtn','answers',
    'quickOn','quickModel','quickWords','quick','quickX','quickTtl','quickQ','quickA','quickMeta',
-   'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop',
+   'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop','teamsAutoJoin','teamsAutoLeave',
    'vcamBtn','vcamPick','vcamHint','vcamInstall','vcamName','vcamRename','camDev','camSecs','camRec','camHint','camrecPill','camrecText','recOverlay','recSub','recLeft',
    'procMode','procBox','procUrl','procToken','procTest','procHint','procModel'].forEach((id) => el[id] = $('#' + id));
   const MOCK = location.search.includes('mock') || location.hash.includes('mock') || location.protocol === 'data:';  // demo feed outside pywebview
@@ -686,7 +691,8 @@
              notify_enabled: el.notifyOn.checked, notify_lead: +el.notifyLead.value || 0, vcam_name: el.vcamName.value.trim(),
              proc_mode: el.procMode.value, proc_url: el.procUrl.value.trim(), proc_token: el.procToken.value.trim(),
              proc_model: el.procModel.value,
-             autostart: el.autostart.checked, autostop: el.autostop.checked };
+             autostart: el.autostart.checked, autostop: el.autostop.checked,
+             teams_auto_join: el.teamsAutoJoin.checked, teams_auto_leave: el.teamsAutoLeave.checked };
   }
   function showSource() {
     const n = (sel) => sel.selectedOptions[0]?.dataset.name || sel.selectedOptions[0]?.textContent || '—';
@@ -716,6 +722,14 @@
   };
   el.vol.oninput = () => { el.volv.textContent = el.vol.value; if (S.running) api().set_volume(+el.vol.value); };
   el.cableBtn.onclick = () => { el.cableBtn.disabled = true; addLog('=== своё виртуальное устройство ===', 'b'); (S.cable ? api().rename_cable() : api().install_cable()); };
+  el.teamsBtn.onclick = async () => {
+    el.teamsBtn.disabled = true;
+    try {
+      const r = await api().open_teams();
+      if (!r.ok) addLog('[Teams] ' + r.error, 'e');
+    } catch (e) { addLog('[Teams] ' + e, 'e'); }
+    finally { el.teamsBtn.disabled = false; }
+  };
   el.refreshBtn.onclick = () => { loadDevices(); loadCams(); };
   el.file.onclick = () => api().open_recordings();
   document.getElementById('openRecBtn').onclick = () => api().open_recordings();
@@ -738,6 +752,7 @@
     let d = await api().devices();
     if (d.error || !d.inputs.length) { await new Promise((r) => setTimeout(r, 1500)); d = await api().devices(); }
     S.platform = d.platform || 'win32';
+    el.teamsBtn.style.display = S.platform === 'win32' ? '' : 'none';
     if (S.platform === 'darwin') {
       el.cableBtn.style.display = 'none';
       el.slidesOn.checked = false; el.slidesOn.disabled = true;
@@ -776,6 +791,9 @@
     el.procBox.style.display = el.procMode.value === 'external' ? 'block' : 'none';
     if ('notify_enabled' in s) el.notifyOn.checked = !!s.notify_enabled; if ('notify_lead' in s) el.notifyLead.value = s.notify_lead;
     if ('autostart' in s) el.autostart.checked = !!s.autostart; if ('autostop' in s) el.autostop.checked = !!s.autostop;
+    if ('teams_auto_join' in s) el.teamsAutoJoin.checked = !!s.teams_auto_join;
+    if ('teams_auto_leave' in s) el.teamsAutoLeave.checked = !!s.teams_auto_leave;
+    el.teamsAutoJoin.disabled = S.platform !== 'win32'; el.teamsAutoLeave.disabled = S.platform !== 'win32';
     if ('slides_enabled' in s) el.slidesOn.checked = !!s.slides_enabled; if (s.slides_interval) el.slidesInterval.value = s.slides_interval; if (s.slides_threshold) el.slidesThreshold.value = s.slides_threshold;
     if (S.platform === 'darwin') el.slidesOn.checked = false;
     if (d.error) addLog('[error] устройства: ' + d.error, 'e');
@@ -837,7 +855,7 @@
       apply_extras: async () => ({ alert: true, analyst: true }), journal_creds: async () => ({ username: 'student', has_password: true }), save_journal: async () => ({ ok: true, lessons: 2 }), analysis_state: async () => null, analyze_now: async () => ({ ok: true }), test_alert: async () => true,
       journal_today: async () => ({ ok: true, lessons: [{ subject: 'Разработка веб-приложений ASP.NET', teacher: 'Якубаш Н. А.', room: '36', start: '10:00', end: '11:20', current: false, visit: { was: 1, was_text: 'был', marks: { 'ДЗ': 5 }, theme: 'Модуль 2. Основы ASP.NET Core' } }, { subject: 'Безопасность жизнедеятельности', teacher: 'Горбич И. Д.', room: 'Общая', start: '13:30', end: '14:50', current: false, visit: null }] }),
       start: async () => { runMock(); return { ok: true }; }, stop: async () => { clearInterval(mockTimer); window.__evt({ kind: 'stopped' }); return { ok: true }; },
-      install_cable: async () => true, rename_cable: async () => true };
+      install_cable: async () => true, rename_cable: async () => true, open_teams: async () => ({ ok: true }) };
     window.pywebview = { api: mockApi };
     let mockTimer;
     const SENT = ['добрый день коллеги давайте начнём встречу с обсуждения статуса по проекту миграции', 'на прошлой неделе мы закончили перенос базы данных осталось проверить репликацию', 'кирилл а ты что думаешь про нагрузочные тесты', 'тогда во вторник проведём демонстрацию для заказчика и обсудим сроки релиза'];

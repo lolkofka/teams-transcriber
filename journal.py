@@ -1,7 +1,7 @@
 """
 Schedule lookup in the Top Academy student journal (journal.top-academy.ru, MyStat API).
 
-Credentials live in journal.json next to this file (see journal.json.example).
+Credentials live in journal.json in the app data directory (see journal.json.example).
 The access token is cached in journal_token.json and refreshed on 401.
 
 CLI:
@@ -17,9 +17,18 @@ import sys
 import urllib.error
 import urllib.request
 
-from paths import BASE_DIR as HERE
-CONFIG = os.path.join(HERE, "journal.json")
-TOKEN_CACHE = os.path.join(HERE, "journal_token.json")
+from paths import USER_DATA_DIR, BASE_DIR, FROZEN
+CONFIG = os.path.join(USER_DATA_DIR, "journal.json")
+TOKEN_CACHE = os.path.join(USER_DATA_DIR, "journal_token.json")
+
+if FROZEN and os.name == "nt":
+    # Upgrade installations that kept credentials beside an older Windows exe.
+    import shutil
+    for name in ("journal.json", "journal_token.json"):
+        old = os.path.join(BASE_DIR, name)
+        new = os.path.join(USER_DATA_DIR, name)
+        if not os.path.exists(new) and os.path.isfile(old):
+            shutil.copy2(old, new)
 APP_KEY = "6a56a5df2667e65aab73ce76d1dd737f7d1faef9c52e8b8c55ac75f565d8e8a6"
 AFTER_GRACE = dt.timedelta(minutes=15)   # recording later than this after the last lesson -> separate file
 

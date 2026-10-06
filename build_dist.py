@@ -6,12 +6,17 @@ Package the PyInstaller output for handing over:
 Run after:  .venv\\Scripts\\pyinstaller --noconfirm TeamsTranscriber.spec
 """
 import datetime as dt
+import argparse
 import os
 import shutil
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DIST = os.path.join(HERE, "dist", "TeamsTranscriber")
+parser = argparse.ArgumentParser(description="Package a Windows PyInstaller onedir build")
+parser.add_argument("--app-dir", default=os.path.join(HERE, "dist", "TeamsTranscriber"))
+parser.add_argument("--output", default=None)
+args = parser.parse_args()
+DIST = os.path.abspath(args.app_dir)
 assert os.path.exists(os.path.join(DIST, "TeamsTranscriber.exe")), "run pyinstaller first"
 
 def copy_tree(src, dst):
@@ -46,7 +51,7 @@ for junk in ("_internal/torch/test", "_internal/torch/include", "_internal/torch
     pass
 
 stamp = dt.datetime.now().strftime("%Y-%m-%d")
-zpath = os.path.join(HERE, "dist", f"TeamsTranscriber-{stamp}.zip")
+zpath = os.path.abspath(args.output or os.path.join(HERE, "dist", f"TeamsTranscriber-{stamp}.zip"))
 if os.path.exists(zpath):
     os.remove(zpath)
 total = 0

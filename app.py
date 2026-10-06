@@ -18,11 +18,16 @@ import time
 import traceback
 import types
 
-from paths import BASE_DIR as HERE, RESOURCE_DIR, FROZEN  # noqa: E402
+from paths import BASE_DIR as HERE, RESOURCE_DIR, USER_DATA_DIR, FROZEN  # noqa: E402
 os.chdir(HERE)
 sys.path.insert(0, HERE)
-SETTINGS = os.path.join(HERE, "gui_settings.json")
+SETTINGS = os.path.join(USER_DATA_DIR, "gui_settings.json")
 LOG = os.path.join(HERE, "app.log")
+if FROZEN and sys.platform == "win32" and not os.path.exists(SETTINGS):
+    old_settings = os.path.join(HERE, "gui_settings.json")
+    if os.path.isfile(old_settings):
+        import shutil
+        shutil.copy2(old_settings, SETTINGS)
 
 import webview  # noqa: E402
 import transcribe as T  # noqa: E402
@@ -33,6 +38,8 @@ from slides import SlideCapture  # noqa: E402
 import report  # noqa: E402
 from notify import LessonNotifier  # noqa: E402
 import vcam  # noqa: E402
+from teams_browser import BROWSER as TEAMS_BROWSER  # noqa: E402
+from teams_auto import TeamsMeetingAutomation  # noqa: E402
 
 MODELS = ["large-v3-turbo", "medium", "small"]
 
@@ -63,6 +70,7 @@ class Sink:
 
     def __init__(self):
         self.q = queue.Queue()
+        self.meeting_auto = None
         self.alert = None      # NameAlert
         self.analyst = None    # LessonAnalyst
         self.quick = False     # answer hints on a name ping
@@ -82,6 +90,8 @@ class Sink:
     def event(self, kind, payload):
         d = dict(payload); d["kind"] = kind
         try:
+            if kind == "final" and self.meeting_auto is not None:
+                self.meeting_auto.on_speech(d.get("text", ""), d.get("source", "teams"))
             if kind == "draft" and d.get("source", "teams") != "mic" and d.get("text"):
                 self._recent.append((time.time(), d["text"]))
                 self._recent = self._recent[-60:]
@@ -125,6 +135,7 @@ class Api:
 
     def __init__(self):
         self._window = None
+        self._teams = TEAMS_BROWSER
         self._sink = Sink()
         T.CON.sink = self._sink
         self._pipe = None
@@ -134,6 +145,7 @@ class Api:
         self._last_folder = None
         self._cfg = {}
         self._notifier = None
+        self._meeting_auto = None
         self._vcam = vcam.VirtualCam(on_log=lambda m: self._sink.q.put({"kind": "log", "text": m, "dim": False}),
                                      on_state=lambda st: self._sink.q.put(dict(st, kind="vcam")))
 
@@ -141,6 +153,16 @@ class Api:
     def attach(self, window):
         self._window = window
         threading.Thread(target=self._dispatch, daemon=True).start()
+
+    def _start_teams_auto(self):
+        if sys.platform != "win32" or self._meeting_auto is not None:
+            return
+        import journal
+        self._meeting_auto = TeamsMeetingAutomation(
+            self._teams, self.settings, journal.get_schedule,
+            lambda msg: self._sink.q.put({"kind": "log", "text": msg, "dim": False}))
+        self._sink.meeting_auto = self._meeting_auto
+        self._meeting_auto.start()
 
     def _push(self, obj):
         if self._window is None:
@@ -274,6 +296,17 @@ class Api:
         os.makedirs(os.path.join(HERE, "recordings"), exist_ok=True)
         _open_path(os.path.join(HERE, "recordings"))
         return True
+
+    def open_teams(self):
+        """Open the Python-controlled Teams WebView2 window."""
+        if sys.platform != "win32":
+            return {"ok": False, "error": "Встроенное окно Teams пока доступно только в Windows"}
+        try:
+            self._teams.open()
+            return {"ok": True}
+        except Exception as e:
+            log_exc()
+            return {"ok": False, "error": str(e)}
 
     # ---------------------------------------------------------------- alerts + analyst
     def apply_extras(self, cfg):
@@ -705,8 +738,15 @@ def main():
                                    width=1240, height=800, min_size=(900, 600), background_color="#0f1117",
                                    text_select=True)  # allow selecting/copying text; the page limits it to text areas
     api.attach(window)
+    window.events.loaded += api._start_teams_auto
 
     def on_closing():
+        if api._meeting_auto is not None:
+            api._meeting_auto.stop()
+        try:
+            api._teams.close()
+        except Exception:
+            pass
         try:
             api._vcam.stop()
         except Exception:
@@ -717,7 +757,13 @@ def main():
             except Exception:
                 pass
     window.events.closing += on_closing
-    webview.start(debug="--debug" in sys.argv)
+    if sys.platform == "win32":
+        profile = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
+                               "TeamsTranscriber", "webview2")
+        webview.start(gui="edgechromium", debug="--debug" in sys.argv,
+                      private_mode=False, storage_path=profile)
+    else:
+        webview.start(debug="--debug" in sys.argv)
 
 
 if __name__ == "__main__":
