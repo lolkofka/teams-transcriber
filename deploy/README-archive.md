@@ -4,6 +4,7 @@
 
 Развёрнутый сервис: https://bhpcubes.ru/transcriber/
 Хост SSH: `bhpcubes` (`odin`). Исходники и Compose: `/home/lolkof/transcriber-archive`.
+Windows-сборки лежат в `/hdd/transcriber-releases` и скачиваются по адресу `https://bhpcubes.ru/teams-transcriber-releases/<имя-архива>`. Их раздаёт отдельный контейнер `downloads` из того же Compose; архив пар от него не зависит.
 Данные HDD: `/hdd/transcriber-archive`. SQLite хранит текущие манифесты клиентов; исходные файлы лежат неизменными в `blobs` по SHA256. Совпадающий файл не загружается дважды. Никакого сжатия, серверной очистки или ограничения числа клиентов нет.
 
 ## Подключение клиентов
