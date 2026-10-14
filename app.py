@@ -244,6 +244,13 @@ class Api:
             pass
         return settings
 
+    def open_help(self):
+        try:
+            _open_path(os.path.join(RESOURCE_DIR, "USER-GUIDE.txt"))
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def open_archive(self):
         import webbrowser
         from archive_sync import ArchiveClient

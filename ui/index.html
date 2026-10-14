@@ -217,6 +217,7 @@
   <label class="playback-volume" title="Громкость прослушивания Teams; запись не меняется">Звук <input type="range" id="topVol" min="0" max="100" value="100" aria-label="Громкость звука Teams"><span id="topVolv">100%</span></label>
   <button id="teamsBtn" class="btn sm" title="Открыть Teams во встроенном окне">Открыть Teams</button>
   <button id="archiveBtn" class="btn sm" title="Общие транскрипции, чат и все материалы пар">Архив пар</button>
+  <button id="helpBtn" class="btn sm" title="Руководство: запись, Teams, камера и общий архив">Справка</button>
   <button id="gear" class="icon" title="Настройки">⚙</button>
 </header>
 <main>
@@ -418,7 +419,7 @@
   const el = {};
   ['inp','out','vol','volv','model','lang','journal','vosk','diar','startBtn','cableBtn','refreshBtn','vdev','vdevText','status','statusText',
    'meter','backlog','file','stream','scroll','live','caret','toBottom','lessons','log','empty','stats','mic','micMode','micState','micMeter','micRow',
-   'gear','teamsBtn','archiveBtn','archiveUrl','archiveToken','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast','topVol','topVolv',
+   'gear','teamsBtn','archiveBtn','helpBtn','archiveUrl','archiveToken','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast','topVol','topVolv',
    'alertOn','alertNames','alertDev','alertTest','llmOn','llmBase','llmModel','llmInterval','llmKey','jUser','jPass','jSave','jHint','askIn','askBtn','answers',
    'quickOn','quickModel','quickWords','quick','quickX','quickTtl','quickQ','quickA','quickMeta',
    'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop','teamsAutoJoin','teamsAutoLeave',
@@ -822,6 +823,7 @@
   }
   el.vol.oninput = () => changeVolume(el.vol.value);
   el.topVol.oninput = () => changeVolume(el.topVol.value);
+  el.helpBtn.onclick = async () => { const result = await api().open_help(); if (!result.ok) toast(result.error); };
   el.archiveBtn.onclick = async () => { const result = await api().open_archive(); if (!result.ok) toast(result.error); };
   el.cableBtn.onclick = () => { el.cableBtn.disabled = true; addLog('=== своё виртуальное устройство ===', 'b'); (S.cable ? api().rename_cable() : api().install_cable()); };
   el.teamsBtn.onclick = async () => {

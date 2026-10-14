@@ -31,10 +31,10 @@ class ChatTests(unittest.TestCase):
             capture.ingest([dict(msg, text='Изменённый текст')])
             ChatTranscript(asr, events.append).ingest([msg])
             self.assertEqual(len(events), 1)
-            records = [json.loads(line) for line in Path(asr.jsonl_path).read_text().splitlines()]
+            records = [json.loads(line) for line in Path(asr.jsonl_path).read_text(encoding='utf-8').splitlines()]
             self.assertEqual(len(records),1)
             self.assertEqual(records[0]['source'], 'chat')
-            self.assertIn('[чат] Преподаватель:', Path(asr.txt_path).read_text())
+            self.assertIn('[чат] Преподаватель:', Path(asr.txt_path).read_text(encoding='utf-8'))
             header, items = _load(folder)
             self.assertEqual(items[0]['source'], 'chat')
             self.assertEqual(_who(items[0]['speaker'],items[0]['source']), '[чат] Преподаватель')

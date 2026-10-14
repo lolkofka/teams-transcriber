@@ -173,7 +173,7 @@ class ArchiveSync(threading.Thread):
         self.state_path=Path(state_path)
         self.settings=settings;self.active_folder=active_folder;self.on_log=on_log
         self.stop_event=threading.Event()
-        try:self.state=json.loads(self.state_path.read_text())
+        try:self.state=json.loads(self.state_path.read_text(encoding='utf-8'))
         except (OSError,ValueError):self.state={}
         self.state.setdefault('client',str(uuid.uuid4()))
         self.state.setdefault('receipts',{})
@@ -274,7 +274,7 @@ class ArchiveSync(threading.Thread):
         if not url or not token:return
         with sync_lock(self.state_path.with_suffix('.lock')) as acquired:
             if not acquired:return
-            try:self.state=json.loads(self.state_path.read_text())
+            try:self.state=json.loads(self.state_path.read_text(encoding='utf-8'))
             except (OSError,ValueError):pass
             client=ArchiveClient(url,token)
             try:self._once(client)

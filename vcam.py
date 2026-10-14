@@ -200,7 +200,7 @@ class CamRecorder(threading.Thread):
             self.on_progress({'state': 'opening'})
             cap = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION if sys.platform == 'darwin' else cv2.CAP_DSHOW)
             if not cap.isOpened():
-                raise RuntimeError('Камера не открывается. Проверь разрешение камеры в macOS и не занята ли она Teams.')
+                raise RuntimeError('Камера не открывается. Проверь разрешение камеры в системе и не занята ли она Teams.')
             # MJPEG is a DirectShow/USB setting; forcing it on AVFoundation can produce black frames.
             if sys.platform != 'darwin':
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))

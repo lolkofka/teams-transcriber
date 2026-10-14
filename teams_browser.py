@@ -111,11 +111,14 @@ class TeamsBrowser:
                             self.dom.install(self)
                             self.install_meeting_popup_handler()
                             window.load_url(TEAMS_URL)
-                        except Exception:
-                            # Keep Teams unopened if the microphone guard cannot
-                            # be installed; record the actionable failure.
+                        except Exception as exc:
+                            # Keep Teams unopened if the microphone guard cannot be installed.
+                            import html
                             import logging
                             logging.exception("Не удалось подготовить защиту Teams WebView2")
+                            window.load_html("<h2>Не удалось подготовить защиту Teams</h2>"
+                                             "<p>Обновите Microsoft Edge WebView2 Runtime.</p><pre>"
+                                             + html.escape(str(exc)) + "</pre>")
                     window.events.loaded += configure_windows
 
                 def on_closed():

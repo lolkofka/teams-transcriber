@@ -101,7 +101,7 @@ class TeamsAutoTests(unittest.TestCase):
                 self.callback = callback
                 return self
 
-        window = SimpleNamespace(events=SimpleNamespace(closed=ClosedEvent(), before_show=ClosedEvent()))
+        window = SimpleNamespace(events=SimpleNamespace(closed=ClosedEvent(), before_show=ClosedEvent(), loaded=ClosedEvent()))
         browser = TeamsBrowser()
         with patch("teams_browser.webview.create_window", return_value=window):
             browser.open()

@@ -38,7 +38,7 @@ class ArchiveIntegration(unittest.TestCase):
         ts=dt.datetime(2026,10,1,11,40).timestamp()
         speech=dict(ts=ts,speaker='SPEAKER_00',source='teams',text='Создайте новый компонент на странице')
         chat=dict(ts=ts+40,speaker='Преподаватель',source='chat',text='Задание App.razor',chat_key='same-chat')
-        (folder/'transcript.jsonl').write_text('\n'.join(json.dumps(r,ensure_ascii=False) for r in (speech,chat))+'\n')
+        (folder/'transcript.jsonl').write_text('\n'.join(json.dumps(r,ensure_ascii=False) for r in (speech,chat))+'\n',encoding='utf-8')
         (folder/'audio.wav').write_bytes(b'original audio, no compression'*5000)
         (folder/'slides').mkdir();(folder/'slides'/'1.png').write_bytes(b'original slide')
         for path in folder.rglob('*'):
@@ -47,7 +47,7 @@ class ArchiveIntegration(unittest.TestCase):
         self.assertFalse((folder/'audio.wav').exists())
         self.assertTrue((folder/'transcript.jsonl').exists())
         second,other=self.worker('second')
-        (other/'transcript.jsonl').write_text('\n'.join(json.dumps(r,ensure_ascii=False) for r in (dict(speech,text=speech['text']+' и добавьте кнопку'),chat))+'\n')
+        (other/'transcript.jsonl').write_text('\n'.join(json.dumps(r,ensure_ascii=False) for r in (dict(speech,text=speech['text']+' и добавьте кнопку'),chat))+'\n',encoding='utf-8')
         second.sync_folder(self.client,other)
         meetings=self.client.json('/api/meetings');self.assertEqual(len(meetings),1)
         meeting=meetings[0]['meeting'];self.assertEqual(meetings[0]['clients'],2)
@@ -142,6 +142,13 @@ class ArchiveIntegration(unittest.TestCase):
             receipt[name]=dict(sha256=digest(b'text'),size=4)
         worker.cleanup(folder,meta,receipt,now=end+4*86400)
         self.assertTrue(all((folder/name).exists() for name in receipt))
+
+    def test_restart_preserves_client_and_receipts_with_russian_paths(self):
+        worker,folder=self.worker('restart')
+        worker.state['receipts']['Предмет/пара/аудио.wav']={'confirmed': True}
+        worker.save()
+        restored=ArchiveSync(worker.root,worker.state_path,lambda:{},lambda:None,lambda _:None)
+        self.assertEqual(restored.state,worker.state)
 
     def test_one_sync_process_per_installation(self):
         from archive_sync import sync_lock
