@@ -97,6 +97,9 @@ class TeamsAutoTests(unittest.TestCase):
         class ClosedEvent:
             callback = None
 
+            def is_set(self):
+                return False
+
             def __iadd__(self, callback):
                 self.callback = callback
                 return self

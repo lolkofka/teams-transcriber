@@ -106,9 +106,10 @@ class TeamsBrowser:
                     initialized = threading.Event()
 
                     def configure_windows():
-                        if initialized.is_set():
-                            return
-                        initialized.set()
+                        with self._lock:
+                            if initialized.is_set():
+                                return
+                            initialized.set()
                         try:
                             self.dom.install(self)
                             self.install_meeting_popup_handler()
@@ -122,6 +123,8 @@ class TeamsBrowser:
                                              "<p>Обновите Microsoft Edge WebView2 Runtime.</p><pre>"
                                              + html.escape(str(exc)) + "</pre>")
                     window.events.loaded += configure_windows
+                    if window.events.loaded.is_set():
+                        threading.Thread(target=configure_windows, daemon=True).start()
 
                 def on_closed():
                     with self._lock:

@@ -45,11 +45,13 @@ def install(self, browser):
 WindowsTeamsChat.install = install
 teams_browser.TEAMS_URL = 'https://teams.microsoft.com/smoke.html'
 browser = teams_browser.TeamsBrowser()
-window = browser.open()
+host = webview.create_window('Windows fixture host', html='<p>Local test host</p>')
 result = {}
 
 def check():
+    window = None
     try:
+        window = browser.open()
         deadline = time.monotonic()+40
         while time.monotonic() < deadline:
             if browser.dom.chat_messages():
@@ -66,7 +68,9 @@ def check():
         result['error'] = repr(error)
         print('WINDOWS WEBVIEW2 SMOKE FAILED', repr(error), flush=True)
     finally:
-        window.destroy()
+        if window is not None:
+            window.destroy()
+        host.destroy()
 
 webview.start(check, gui='edgechromium', private_mode=True)
 folder.cleanup()
