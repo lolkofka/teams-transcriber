@@ -910,9 +910,13 @@ if __name__ == "__main__":
     if "--selftest" in sys.argv:              # headless check of the bundled pipeline on a wav (writes selftest.log)
         import types as _t
         wav = next((a for a in sys.argv[1:] if a.lower().endswith(".wav")), os.path.join(RESOURCE_DIR, "test_meeting.wav"))
+        success = False
         with open(os.path.join(HERE, "selftest.log"), "w", encoding="utf-8") as f:
             class _S:
-                def event(self, k, p): f.write(f"{k}: {json.dumps(p, ensure_ascii=False)[:160]}\n"); f.flush()
+                finals = 0
+                def event(self, k, p):
+                    if k == "final" and p.get("text", "").strip(): self.finals += 1
+                    f.write(f"{k}: {json.dumps(p, ensure_ascii=False)[:160]}\n"); f.flush()
                 def final(self, line, dim=False): f.write(line + "\n"); f.flush()
                 def partial(self, t): pass
                 def draft_done(self, t): pass
@@ -922,12 +926,18 @@ if __name__ == "__main__":
                                        threads=max(1, (os.cpu_count() or 8) // 2), beam=5, out=os.path.join(HERE, "recordings"), no_diar=False, spk_threshold=0.45,
                                        min_silence=700, max_utt=25.0, no_save_audio=True, initial_prompt=None, vosk_model=None, no_vosk=False, journal=False)
                 p = T.Pipeline(a).start()
+                deadline = time.monotonic() + 600
                 while p.alive():
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("Selftest did not finish within 10 minutes")
                     time.sleep(0.5)
+                if not T.CON.sink.finals:
+                    raise RuntimeError("Selftest produced no final transcription")
                 f.write("SELFTEST OK\n")
+                success = True
             except Exception:
                 f.write(traceback.format_exc())
-        sys.exit(0)
+        sys.exit(0 if success else 1)
     try:
         main()
     except Exception:

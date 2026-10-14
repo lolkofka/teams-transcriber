@@ -20,13 +20,26 @@ Path(folder.name, 'smoke.html').write_text('''<!doctype html><html><body>
 <h4 aria-label="Message by Teacher">Message by Teacher</h4>
 <div data-tid="message-body">Windows chat fixture</div>
 <time datetime="2026-10-14T10:00:00Z">Today 10:00</time>
-</article></section></div></body></html>''', encoding='utf-8')
+</article></section></div><script>
+navigator.mediaDevices.getUserMedia({audio:true}).then(stream => {
+ const track=stream.getAudioTracks()[0]; track.enabled=true;
+ window.fixtureGuardDenied=!track.enabled && !track.clone().enabled;
+});
+</script></body></html>''', encoding='utf-8')
 original_install = WindowsTeamsChat.install
 
 def install(self, browser):
     from Microsoft.Web.WebView2.Core import CoreWebView2HostResourceAccessKind
     browser.with_core_webview2(lambda core: core.SetVirtualHostNameToFolderMapping(
         'teams.microsoft.com', folder.name, CoreWebView2HostResourceAccessKind.DenyCors))
+    fixture_script = """class FixtureTrack {
+      constructor(){this.kind='audio';this._enabled=true;}
+      get enabled(){return this._enabled;} set enabled(value){this._enabled=!!value;}
+      addEventListener(){} clone(){return new FixtureTrack();} stop(){}
+    }
+    navigator.mediaDevices.getUserMedia=async()=>({getAudioTracks:()=>[new FixtureTrack()]});"""
+    task=browser.with_core_webview2(lambda core:core.AddScriptToExecuteOnDocumentCreatedAsync(fixture_script))
+    task.GetAwaiter().GetResult()
     original_install(self, browser)
 
 WindowsTeamsChat.install = install
@@ -43,9 +56,9 @@ def check():
                 break
             time.sleep(.2)
         guard = browser.with_core_webview2(lambda core: core.ExecuteScriptAsync(
-            'JSON.stringify({guard:!!window.__teamsMicGuard,chat:!!window.__teamsChat,api:Object.keys(window.pywebview?.api||{}).length>0})'))
+            'JSON.stringify({guard:!!window.__teamsMicGuard,chat:!!window.__teamsChat,denied:window.fixtureGuardDenied===true,api:Object.keys(window.pywebview?.api||{}).length>0})'))
         state = json.loads(json.loads(str(guard.GetAwaiter().GetResult())))
-        assert state == dict(guard=True, chat=True, api=False), state
+        assert state == dict(guard=True, chat=True, denied=True, api=False), state
         assert browser.dom.chat_messages()[0]['text'] == 'Windows chat fixture'
         result['ok'] = True
         print('WINDOWS WEBVIEW2 SMOKE OK', flush=True)

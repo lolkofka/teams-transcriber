@@ -22,3 +22,4 @@ reportlab
 Pillow
 mss
 pyinstaller
+tzdata

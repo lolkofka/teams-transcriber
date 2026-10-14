@@ -35,8 +35,15 @@ jobs:
           python build_dist.py
       - name: Verify packaged executable
         run: |
-          & ./dist/TeamsTranscriber/TeamsTranscriber.exe --bundle-smoke
-          if ($LASTEXITCODE -ne 0) { throw "Bundle smoke failed: $LASTEXITCODE" }
+          $process = Start-Process ./dist/TeamsTranscriber/TeamsTranscriber.exe -ArgumentList '--bundle-smoke' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Bundle smoke failed: $($process.ExitCode)" }
+      - name: Transcribe test audio with packaged application
+        timeout-minutes: 12
+        shell: pwsh
+        run: |
+          $process = Start-Process ./dist/TeamsTranscriber/TeamsTranscriber.exe -ArgumentList '--selftest' -PassThru -Wait
+          Get-Content -Encoding utf8 ./dist/TeamsTranscriber/selftest.log
+          if ($process.ExitCode -ne 0) { throw "Transcription selftest failed: $($process.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: TeamsTranscriber-windows-x64
