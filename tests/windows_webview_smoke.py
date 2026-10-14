@@ -37,7 +37,7 @@ def install(self, browser):
       get enabled(){return this._enabled;} set enabled(value){this._enabled=!!value;}
       addEventListener(){} clone(){return new FixtureTrack();} stop(){}
     }
-    navigator.mediaDevices.getUserMedia=async()=>({getAudioTracks:()=>[new FixtureTrack()]});"""
+    navigator.mediaDevices.getUserMedia=async()=>{const track=new FixtureTrack();return {getAudioTracks:()=>[track]};};"""
     task=browser.with_core_webview2(lambda core:core.AddScriptToExecuteOnDocumentCreatedAsync(fixture_script))
     task.GetAwaiter().GetResult()
     original_install(self, browser)
