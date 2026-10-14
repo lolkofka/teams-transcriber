@@ -50,6 +50,8 @@ def _load(folder):
 
 
 def _who(speaker, source):
+    if source == "chat":
+        return "[чат] " + (speaker or "Автор неизвестен")
     if source == "mic" or speaker == "Вы":
         return "Вы"
     return (speaker or "").replace("SPEAKER_", "Спикер ")

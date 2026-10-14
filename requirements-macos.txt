@@ -13,6 +13,7 @@ pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
 pyobjc-framework-WebKit
 pyobjc-framework-Security
+pyobjc-framework-AVFoundation
 pyvirtualcam
 opencv-python
 python-docx

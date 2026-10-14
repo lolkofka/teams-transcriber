@@ -2,7 +2,7 @@
 import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-datas = [("ui", "ui"), ("test_meeting.wav", "."), ("journal.json.example", ".")]
+datas = [("ui", "ui"), ("test_meeting.wav", "."), ("journal.json.example", "."), ("USER-GUIDE.txt", "."), ("README-macos.md", ".")]
 if os.path.isdir("models/vosk-model-small-ru-0.22"):
     datas.append(("models/vosk-model-small-ru-0.22", "models/vosk-model-small-ru-0.22"))
 binaries = []
@@ -18,6 +18,7 @@ for pkg in ("faster_whisper", "ctranslate2", "silero_vad", "speechbrain", "vosk"
     except Exception as e:
         print("collect_all skipped:", pkg, e)
 hiddenimports += collect_submodules("webview.platforms.cocoa")
+hiddenimports += collect_submodules("AVFoundation")
 hiddenimports += ["journal", "teams_mic", "alerts", "analyst", "vcable", "transcribe",
                   "paths", "vcam", "slides", "report", "notify", "speechbrain.inference.speaker"]
 
@@ -30,6 +31,7 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="TeamsTranscriber",
           console=False, target_arch="arm64", upx=False)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="TeamsTranscriber")
-app = BUNDLE(coll, name="TeamsTranscriber.app", bundle_identifier="io.github.lolkofka.teamstranscriber",
+app = BUNDLE(coll, name="TeamsTranscriber.app", icon="ui/icon.icns",
+             bundle_identifier="io.github.lolkofka.teamstranscriber",
              info_plist={"NSMicrophoneUsageDescription": "Запись звука для расшифровки встреч",
                          "NSCameraUsageDescription": "Запись видео для виртуальной камеры"})

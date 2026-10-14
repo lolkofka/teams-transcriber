@@ -1,0 +1,26 @@
+services:
+  archive:
+    build:
+      context: .
+      dockerfile: Dockerfile.archive
+    restart: unless-stopped
+    env_file: archive.env
+    volumes:
+      - /hdd/transcriber-archive:/data
+    ports:
+      - "127.0.0.1:8766:8766"
+    networks:
+      - virtual-hosts
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=virtual-hosts
+      - traefik.http.routers.transcriber-archive.rule=Host(`bhpcubes.ru`) && PathPrefix(`/transcriber`)
+      - traefik.http.routers.transcriber-archive.entrypoints=websecure
+      - traefik.http.routers.transcriber-archive.tls=true
+      - traefik.http.routers.transcriber-archive.tls.certresolver=letsencrypt
+      - traefik.http.routers.transcriber-archive.middlewares=transcriber-strip
+      - traefik.http.middlewares.transcriber-strip.stripprefix.prefixes=/transcriber
+      - traefik.http.services.transcriber-archive.loadbalancer.server.port=8766
+networks:
+  virtual-hosts:
+    external: true

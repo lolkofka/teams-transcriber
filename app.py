@@ -18,7 +18,7 @@ import time
 import traceback
 import types
 
-from paths import BASE_DIR as HERE, RESOURCE_DIR, USER_DATA_DIR, FROZEN  # noqa: E402
+from paths import BASE_DIR, BASE_DIR as HERE, RESOURCE_DIR, USER_DATA_DIR, FROZEN  # noqa: E402
 os.chdir(HERE)
 sys.path.insert(0, HERE)
 SETTINGS = os.path.join(USER_DATA_DIR, "gui_settings.json")
@@ -38,7 +38,7 @@ from slides import SlideCapture  # noqa: E402
 import report  # noqa: E402
 from notify import LessonNotifier  # noqa: E402
 import vcam  # noqa: E402
-from teams_browser import BROWSER as TEAMS_BROWSER  # noqa: E402
+from teams_browser import BROWSER as TEAMS_BROWSER, configure_macos_media  # noqa: E402
 from teams_auto import TeamsMeetingAutomation  # noqa: E402
 
 MODELS = ["large-v3-turbo", "medium", "small"]
@@ -144,18 +144,29 @@ class Api:
         self._slides = None
         self._last_folder = None
         self._cfg = {}
+        self._native_cam = None
+        self._cam_lock = threading.Lock()
         self._notifier = None
         self._meeting_auto = None
+        from audio_monitor import AudioMonitor
+        self._monitor = AudioMonitor(self.settings, self._sink.final)
+        self._teams.set_volume(self.settings().get("volume", 100))
+        from archive_sync import ArchiveSync
+        self._archive = ArchiveSync(os.path.join(BASE_DIR, "recordings"), os.path.join(BASE_DIR, "archive-state.json"),
+                                    self.settings, lambda: os.path.dirname(self._pipe.txt_path) if self._pipe and self._pipe.txt_path else None,
+                                    self._sink.final)
         self._vcam = vcam.VirtualCam(on_log=lambda m: self._sink.q.put({"kind": "log", "text": m, "dim": False}),
                                      on_state=lambda st: self._sink.q.put(dict(st, kind="vcam")))
 
     # ---------------------------------------------------------------- lifecycle
     def attach(self, window):
         self._window = window
+        self._monitor.start()
+        self._archive.start()
         threading.Thread(target=self._dispatch, daemon=True).start()
 
     def _start_teams_auto(self):
-        if sys.platform != "win32" or self._meeting_auto is not None:
+        if sys.platform not in ("win32", "darwin") or self._meeting_auto is not None:
             return
         import journal
         self._meeting_auto = TeamsMeetingAutomation(
@@ -221,9 +232,31 @@ class Api:
     def settings(self):
         try:
             with open(SETTINGS, encoding="utf-8") as f:
-                return json.load(f)
+                settings = json.load(f)
         except Exception:
-            return {}
+            settings = {}
+        try:
+            with open(os.path.join(BASE_DIR, "archive-connection.json"), encoding="utf-8") as f:
+                connection = json.load(f)
+            for key in ("archive_url", "archive_token"):
+                if not settings.get(key): settings[key] = connection.get(key, "")
+        except (OSError, ValueError):
+            pass
+        return settings
+
+    def open_archive(self):
+        import webbrowser
+        from archive_sync import ArchiveClient
+        cfg = self.settings()
+        url = cfg.get("archive_url", "").strip()
+        if not url:
+            return {"ok":False, "error":"Настройте адрес общего архива"}
+        try:
+            ticket=ArchiveClient(url,cfg.get("archive_token", "")).json('/api/ticket', {})['ticket']
+            webbrowser.open(url.rstrip('/')+'/ticket/'+ticket)
+            return {"ok":True}
+        except Exception as exc:
+            return {"ok":False,"error":str(exc)}
 
     def save_settings(self, s):
         """Merge into the stored settings: the page only knows its form fields, keys it doesn't carry
@@ -231,8 +264,10 @@ class Api:
         try:
             cur = self.settings()
             cur.update(s or {})
+            self._teams.set_volume(cur.get("volume", 100))
             with open(SETTINGS, "w", encoding="utf-8") as f:
                 json.dump(cur, f, ensure_ascii=False, indent=2)
+            os.chmod(SETTINGS, 0o600)
         except Exception:
             log_exc()
         return True
@@ -299,8 +334,6 @@ class Api:
 
     def open_teams(self):
         """Open the Python-controlled Teams WebView2 window."""
-        if sys.platform != "win32":
-            return {"ok": False, "error": "Встроенное окно Teams пока доступно только в Windows"}
         try:
             self._teams.open()
             return {"ok": True}
@@ -408,15 +441,23 @@ class Api:
         if self._pipe is not None:
             return {"ok": False, "error": "уже запущено"}
         try:
+            browser_audio = cfg.get("input") == "teams-browser"
+            if browser_audio:
+                if sys.platform != "darwin":
+                    raise RuntimeError("Прямой захват встроенного Teams доступен на Mac")
+                self._teams.open()
+                if not self._teams.audio.installed.wait(15):
+                    raise RuntimeError(self._teams.audio.error or "Не удалось подключить звук встроенного Teams")
             self.apply_extras(cfg)
             args = types.SimpleNamespace(
-                list_devices=False, device=int(cfg["input"]), file=None, process=None,
+                list_devices=False, device=None if browser_audio else int(cfg["input"]), file=None, process=None,
+                teams_browser=self._teams if browser_audio else None,
                 model=cfg.get("model", MODELS[0]), language=cfg.get("language") or "ru", compute_type="int8",
                 threads=max(1, (os.cpu_count() or 8) // 2), beam=5, out="recordings",
                 no_diar=not cfg.get("diar", True), spk_threshold=0.45, min_silence=700, max_utt=25.0,
                 no_save_audio=False, initial_prompt=None, vosk_model=None, no_vosk=not cfg.get("vosk", True),
                 journal=bool(cfg.get("journal", True)),
-                monitor=int(cfg["output"]) if cfg.get("output") not in (None, "", "none") else None,
+                monitor=None,  # The GUI monitor owns playback, before/during/after recording.
                 monitor_volume=float(cfg.get("volume", 100)) / 100.0,
                 mic=int(cfg["mic"]) if cfg.get("mic") not in (None, "", "none") else None,
                 mic_mode=cfg.get("mic_mode", "off"),
@@ -514,10 +555,32 @@ class Api:
             self._last_folder = os.path.dirname(self._pipe.txt_path)
             self._push({"kind": "started", "file": self._pipe.txt_path, "info": self._pipe.info, "history": n})
             self._start_slides(self._last_folder)
+            try:
+                self._start_chat(self._pipe)
+            except Exception as exc:
+                log_exc()
+                self._sink.final(f"[error] сбор чата не запустился: {exc}")
         except Exception as e:
             log_exc()
             self._pipe = None
             self._push({"kind": "stopped", "error": str(e)})
+
+    def _start_chat(self, pipe):
+        if self._teams.dom is None:
+            return
+        from teams_chat import ChatTranscript
+        capture = ChatTranscript(pipe.asr, lambda e: self._sink.event("chat", e))
+
+        def collect():
+            self._sink.final("[chat] сохраняю сообщения открытого чата собрания с автором и временем")
+            try:
+                while self._pipe is pipe and not self._stop_flag.is_set():
+                    capture.ingest(self._teams.dom.chat_messages())
+                    time.sleep(0.5)
+            except Exception as exc:
+                log_exc()
+                self._sink.final(f"[error] сбор чата остановился: {exc}")
+        threading.Thread(target=collect, daemon=True).start()
 
     def _start_slides(self, folder):
         cfg = self._cfg
@@ -599,6 +662,54 @@ class Api:
         self._camrec.start()
         return {"ok": True, "file": out}
 
+    def cam_native_begin(self, seconds=30):
+        import uuid
+        with self._cam_lock:
+            if self._native_cam is not None:
+                return {"ok":False,"error":"Запись камеры уже идёт"}
+            identity=uuid.uuid4().hex
+            path=os.path.join(HERE,'recordings','camera',f'camera_{dt.datetime.now():%Y-%m-%d_%H-%M-%S}_{identity[:6]}.mp4')
+            os.makedirs(os.path.dirname(path),exist_ok=True)
+            self._native_cam={'id':identity,'path':path,'seconds':max(3,min(300,int(seconds)))}
+            with open(path+'.partial','wb'):pass
+            return {'ok':True,'id':identity}
+
+    def cam_native_chunk(self, identity, encoded):
+        import base64
+        if not isinstance(encoded,str) or len(encoded)>8*1024*1024:
+            return {'ok':False,'error':'Слишком большой фрагмент видео'}
+        with self._cam_lock:
+            session=self._native_cam
+            if not session or session['id']!=identity:
+                return {'ok':False,'error':'Сеанс записи завершён'}
+            try:
+                data=base64.b64decode(encoded,validate=True)
+                with open(session['path']+'.partial','ab') as output:output.write(data)
+                return {'ok':True}
+            except Exception as exc:
+                return {'ok':False,'error':str(exc)}
+
+    def cam_native_end(self, identity, abort=False):
+        import cv2
+        with self._cam_lock:
+            session=self._native_cam
+            if not session or session['id']!=identity:
+                return {'ok':False,'error':'Сеанс записи завершён'}
+            self._native_cam=None
+        if abort:return {'ok':False,'error':'Запись отменена'}
+        path=session['path'];capture=cv2.VideoCapture(path+'.partial')
+        try:
+            ok,frame=capture.read()
+            if not ok or frame is None or float(frame.mean())<.5:
+                return {'ok':False,'error':'В записанном ролике нет изображения. Проверь камеру и объектив.'}
+            frames=int(capture.get(cv2.CAP_PROP_FRAME_COUNT));fps=float(capture.get(cv2.CAP_PROP_FPS))
+        finally:capture.release()
+        os.replace(path+'.partial',path)
+        settings=self.settings();settings['vcam_file']=path;self.save_settings(settings);self._cfg['vcam_file']=path
+        self._push(dict(self._vcam.status(),kind='vcam',file=path))
+        self._sink.final(f'[camrec] нативная запись: {frames} кадров, {fps:.1f} fps -> {path}')
+        return {'ok':True,'file':path,'frames':frames,'fps':round(fps,1),'seconds':session['seconds']}
+
     def vcam_install(self, name=None):
         name = (name or self.settings().get("vcam_name") or vcam.DEFAULT_NAME)
         def work():
@@ -650,6 +761,8 @@ class Api:
         return w.status() if w else None
 
     def set_volume(self, v):
+        self._teams.set_volume(v)
+        self._monitor.set_volume(v)
         if self._pipe and getattr(self._pipe.rec, "monitor", None):
             self._pipe.rec.monitor.volume = float(v) / 100.0
         return True
@@ -678,6 +791,7 @@ class Api:
 
 APP_TITLE = "Teams transcriber"
 ICON = os.path.join(RESOURCE_DIR, "ui", "icon.ico")
+MAC_ICON = os.path.join(RESOURCE_DIR, "ui", "icon.png")
 
 
 def _open_path(path):
@@ -731,16 +845,26 @@ def _raise_priority():
 
 
 def main():
+    configure_macos_media()
     api = Api()
     _raise_priority()
     _brand_window()
-    window = webview.create_window(APP_TITLE, os.path.join(RESOURCE_DIR, "ui", "index.html"), js_api=api,
+    ui_path = os.path.join(RESOURCE_DIR, "ui", "index.html")
+    import hashlib
+    with open(ui_path, "rb") as source:
+        ui_version = hashlib.sha256(source.read()).hexdigest()[:16]
+    window = webview.create_window(APP_TITLE, ui_path + "?v=" + ui_version, js_api=api,
                                    width=1240, height=800, min_size=(900, 600), background_color="#0f1117",
                                    text_select=True)  # allow selecting/copying text; the page limits it to text areas
     api.attach(window)
+    if sys.platform == 'darwin':
+        from macos_windows import install_window_menu
+        window.events.shown += lambda: install_window_menu(window, api._teams)
     window.events.loaded += api._start_teams_auto
 
     def on_closing():
+        api._archive.close()
+        api._monitor.close()
         if api._meeting_auto is not None:
             api._meeting_auto.stop()
         try:
@@ -763,7 +887,7 @@ def main():
         webview.start(gui="edgechromium", debug="--debug" in sys.argv,
                       private_mode=False, storage_path=profile)
     else:
-        webview.start(debug="--debug" in sys.argv)
+        webview.start(debug="--debug" in sys.argv, private_mode=False, icon=MAC_ICON if sys.platform == "darwin" else None)
 
 
 if __name__ == "__main__":

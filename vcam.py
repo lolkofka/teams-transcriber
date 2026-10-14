@@ -148,10 +148,15 @@ VIRTUAL_HINTS = ("manycam", "unity video capture", "obs virtual", "obs-camera", 
 
 
 def list_cameras(virtual_name=None):
-    """DirectShow video devices as [{index, name, virtual}] (index = OpenCV CAP_DSHOW index)."""
+    """Video devices in the native backend's order (also used by OpenCV)."""
     try:
-        from pygrabber.dshow_graph import FilterGraph
-        names = FilterGraph().get_input_devices()
+        if sys.platform == "darwin":
+            import AVFoundation as AV
+            names = [str(device.localizedName()) for device in
+                     AV.AVCaptureDevice.devicesWithMediaType_(AV.AVMediaTypeVideo)]
+        else:
+            from pygrabber.dshow_graph import FilterGraph
+            names = FilterGraph().get_input_devices()
     except Exception:
         return []
     out = []
@@ -173,51 +178,98 @@ class CamRecorder(threading.Thread):
         self.result = None
 
     def run(self):
+        import base64
         import cv2
-        cap = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            self.result = {"ok": False, "error": "камера не открывается: занята другим приложением (Teams, ManyCam) или отключена"}
-            self.on_progress(dict(self.result, state="error")); return
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))  # USB2 webcams give 30 fps at 720p only in MJPEG
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        ok, frame = False, None
-        for _ in range(30):
-            ok, frame = cap.read()
+        cap = writer = None
+        last_preview = 0.0
+        frames = 0
+
+        def preview(frame):
+            nonlocal last_preview
+            now = time.monotonic()
+            if now - last_preview < 0.15:
+                return
+            last_preview = now
+            h, w = frame.shape[:2]
+            small = cv2.resize(frame, (min(640, w), max(1, round(h * min(640, w) / w))))
+            ok, encoded = cv2.imencode('.jpg', small, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if ok:
-                break
-            time.sleep(0.1)
-        if not ok:
-            cap.release()
-            self.result = {"ok": False, "error": "камера не отдаёт кадры (занята другим приложением?)"}
-            self.on_progress(dict(self.result, state="error")); return
-        h, w = frame.shape[:2]
-        # measure the real frame rate for two seconds so the clip plays at natural speed
-        t0 = time.time(); n = 0
-        while time.time() - t0 < 2.0:
-            if cap.read()[0]:
-                n += 1
-        fps = max(5, min(30, round(n / 2.0)))
-        os.makedirs(os.path.dirname(self.out_path), exist_ok=True)
-        wr = cv2.VideoWriter(self.out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
-        self.on_progress({"state": "recording", "left": self.seconds, "total": self.seconds, "size": f"{w}x{h}", "fps": fps})
-        t0 = time.time(); frames = 0; last_tick = -1
+                self.on_progress({'state': 'preview', 'image': 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode()})
+
         try:
-            while True:
-                el = time.time() - t0
-                if el >= self.seconds:
-                    break
+            self.on_progress({'state': 'opening'})
+            cap = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION if sys.platform == 'darwin' else cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                raise RuntimeError('Камера не открывается. Проверь разрешение камеры в macOS и не занята ли она Teams.')
+            # MJPEG is a DirectShow/USB setting; forcing it on AVFoundation can produce black frames.
+            if sys.platform != 'darwin':
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            deadline = time.monotonic() + 10
+            frame = None
+            while time.monotonic() < deadline:
+                ok, candidate = cap.read()
+                if ok and candidate is not None and candidate.size:
+                    preview(candidate)
+                    if float(candidate.mean()) > .5:
+                        frame = candidate
+                        break
+                time.sleep(.02)
+            if frame is None:
+                raise RuntimeError('Камера не передаёт изображение: нет кадров или идут только чёрные кадры. Проверь выбранную камеру, разрешение и шторку; для iPhone разблокируй и подключи его.')
+            h, w = frame.shape[:2]
+            # Measure actual delivery speed while showing the live preview.
+            began = time.monotonic(); count = 0
+            while time.monotonic() - began < 1:
+                ok, candidate = cap.read()
+                if ok and candidate is not None and candidate.size and float(candidate.mean()) > .5:
+                    frame = candidate; count += 1; preview(frame)
+                else:
+                    time.sleep(.01)
+            fps = max(5, min(60, round(count / max(.1, time.monotonic()-began))))
+            os.makedirs(os.path.dirname(self.out_path), exist_ok=True)
+            writer = cv2.VideoWriter(self.out_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+            if not writer.isOpened():
+                raise RuntimeError('Не удалось открыть MP4 для записи. Проверь доступ к папке и свободное место.')
+            began = last_good = time.monotonic(); last_tick = -1
+            while time.monotonic() - began < self.seconds:
                 ok, frame = cap.read()
-                if ok:
-                    wr.write(frame); frames += 1
-                tick = int(el)
+                now = time.monotonic()
+                if ok and frame is not None and frame.size and float(frame.mean()) > .5:
+                    if frame.shape[2] == 4:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                    if frame.shape[:2] != (h, w):
+                        frame = cv2.resize(frame, (w, h))
+                    writer.write(frame); frames += 1; last_good = now
+                    preview(frame)
+                elif now - last_good > 2:
+                    raise RuntimeError('Изображение с камеры пропало во время записи. Готовый ролик не подтверждён.')
+                else:
+                    time.sleep(.01)
+                tick = int(now - began)
                 if tick != last_tick:
                     last_tick = tick
-                    self.on_progress({"state": "recording", "left": self.seconds - tick, "total": self.seconds, "size": f"{w}x{h}", "fps": fps})
+                    self.on_progress({'state': 'recording', 'left': max(0, self.seconds-tick), 'total': self.seconds,
+                                      'size': f'{w}x{h}', 'fps': fps, 'frames': frames})
+            writer.release(); writer = None
+            cap.release(); cap = None
+            check = cv2.VideoCapture(self.out_path)
+            try:
+                readable, saved = check.read()
+                if not frames or not check.isOpened() or not readable or saved is None or float(saved.mean()) < .5:
+                    raise RuntimeError('Записанный MP4 не содержит читаемого изображения.')
+            finally:
+                check.release()
+            self.result = {'ok': True, 'file': self.out_path, 'frames': frames, 'fps': fps, 'seconds': self.seconds}
+            self.on_progress(dict(self.result, state='done'))
+        except Exception as exc:
+            self.result = {'ok': False, 'error': str(exc)}
+            self.on_progress(dict(self.result, state='error'))
         finally:
-            wr.release(); cap.release()
-        self.result = {"ok": True, "file": self.out_path, "frames": frames, "fps": fps, "seconds": self.seconds}
-        self.on_progress(dict(self.result, state="done"))
+            if writer is not None: writer.release()
+            if cap is not None: cap.release()
 
 
 # ---------------------------------------------------------------- driver install (Unity Capture)

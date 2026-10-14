@@ -17,6 +17,10 @@ journal.json
 journal_token.json
 gui_settings.json
 proc_token.txt
+archive-connection.json
+archive-state.json
+archive-state.lock
+.archive-text-*
 *.lnk
 
 # сторонние бинарники/установщики

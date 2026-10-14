@@ -27,6 +27,7 @@ import warnings
 import numpy as np
 
 from paths import BASE_DIR, RESOURCE_DIR
+from teams_chat import TRANSCRIPT_LOCK
 
 warnings.filterwarnings("ignore")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -445,6 +446,7 @@ class Recorder(threading.Thread):
                 self.monitor.start()
             except Exception as e:
                 CON.final(f"[error] выход не открылся, звук дальше не пересылается: {e}")
+                self.monitor_error = str(e)
                 self.monitor = None
         PA_LOCK.release()
         locked = False
@@ -913,24 +915,25 @@ class Transcriber(threading.Thread):
                           + ("" if h.get("allow_model_switch", True) else " (модель задана на сервере)"))
             except Exception as e:
                 CON.final(f"[proc] сервер не отвечает ({str(e)[:80]}), загружаю локальную модель")
-                print(f"[init] loading whisper '{a.model}' ({a.compute_type}, {a.threads} threads) ...", flush=True)
+                CON.final(f"[init] загружаю Whisper '{a.model}'. При первом запуске модель скачивается; звук сохраняется, текст появится после загрузки.")
                 model = local()
         else:
-            print(f"[init] loading whisper '{a.model}' ({a.compute_type}, {a.threads} threads) ...", flush=True)
+            CON.final(f"[init] загружаю Whisper '{a.model}'. При первом запуске модель скачивается; звук сохраняется, текст появится после загрузки.")
             model = local()
         spk = None
         if not a.no_diar:
-            print("[init] loading speaker encoder ...", flush=True)
+            CON.final("[init] загружаю модель распознавания спикеров; звук продолжает сохраняться.")
             spk = SpeakerTracker(a.spk_threshold)
         lang = None if a.language.lower() == "auto" else a.language
         CON.final("[ready] listening. Ctrl+C to stop.\n")
 
         GAP = int(0.5 * SR)
         MAX_WIN = 28.0
-        fresh = not os.path.exists(self.txt_path) or os.path.getsize(self.txt_path) == 0
         with open(self.txt_path, "a", encoding="utf-8") as ftxt, open(self.jsonl_path, "a", encoding="utf-8") as fjs:
-            ftxt.write(self.header() if fresh else f"# --- продолжение записи {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n")
-            ftxt.flush()
+            with TRANSCRIPT_LOCK:
+                fresh = not os.path.exists(self.txt_path) or os.path.getsize(self.txt_path) == 0
+                ftxt.write(self.header() if fresh else f"# --- продолжение записи {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+                ftxt.flush()
             finished = False
             sentinels = 0
             while not finished:
@@ -1000,10 +1003,11 @@ class Transcriber(threading.Thread):
                     if not CON.emit("final", t0=start_s, t1=start_s + dur, speaker=label, text=text, wall=fmt_ts(start_s), source=src):
                         CON.final(line)
                     who = "Вы" if src == "mic" else label.replace("SPEAKER_", "Спикер ")
-                    ftxt.write(f"{who}: {text}\n"); ftxt.flush()
-                    fjs.write(json.dumps({"start": round(start_s - self.t_session, 2), "end": round(start_s - self.t_session + dur, 2),
-                                          "wall": fmt_ts(start_s), "ts": round(start_s, 2), "speaker": label, "source": src,
-                                          "text": text, "lang": info.language}, ensure_ascii=False) + "\n"); fjs.flush()
+                    with TRANSCRIPT_LOCK:
+                        ftxt.write(f"{who}: {text}\n"); ftxt.flush()
+                        fjs.write(json.dumps({"start": round(start_s - self.t_session, 2), "end": round(start_s - self.t_session + dur, 2),
+                                              "wall": fmt_ts(start_s), "ts": round(start_s, 2), "speaker": label, "source": src,
+                                              "text": text, "lang": info.language}, ensure_ascii=False) + "\n"); fjs.flush()
                 backlog = self.in_q.qsize()
                 if not CON.emit("stats", utts=len(batch), audio=round(total, 1), proc=round(proc, 1), backlog=backlog, beam=beam):
                     CON.final(f"    . {len(batch)} utt / {total:.0f}s audio in {proc:.1f}s" + (f", backlog {backlog}" if backlog else ""), dim=True)
@@ -1049,6 +1053,9 @@ class Pipeline:
         elif args.file:
             out_dir = os.path.join(args.out, "файлы", os.path.splitext(os.path.basename(args.file))[0])
         os.makedirs(out_dir, exist_ok=True)
+        if getattr(args, "meta", None):
+            from archive_sync import atomic_json
+            atomic_json(os.path.join(out_dir, "lesson.json"), args.meta)
         args.out = out_dir
         wav_path = None if (args.no_save_audio or args.file) else os.path.join(out_dir, f"{wav_name}.wav")
 
@@ -1075,6 +1082,9 @@ class Pipeline:
 
         if args.file:
             rec = FileFeeder(args.file, src_q)
+        elif getattr(args, "teams_browser", None) is not None:
+            from teams_audio import TeamsBrowserRecorder
+            rec = TeamsBrowserRecorder(args.teams_browser, src_q, wav_path)
         elif args.process:
             rec = ProcessRecorder(args.process, src_q, wav_path)
         else:

@@ -13,6 +13,7 @@ for pkg in ("faster_whisper", "ctranslate2", "speechbrain", "silero_vad", "vosk"
         print("collect_all skipped:", pkg, e)
 hiddenimports += collect_submodules("pyaudiowpatch")
 hiddenimports += ["journal", "teams_mic", "teams_auto", "teams_browser", "alerts", "analyst", "vcable", "vcable_rename", "transcribe", "paths", "vcam", "slides", "report", "notify",
+                  "archive_sync", "shared_archive", "audio_monitor", "teams_chat", "teams_windows",
                   "speechbrain.inference.speaker", "torchaudio.functional", "silero_vad.utils_vad"]
 
 a = Analysis(

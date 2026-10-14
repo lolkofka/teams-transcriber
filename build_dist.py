@@ -26,12 +26,13 @@ def copy_tree(src, dst):
 
 copy_tree(os.path.join(HERE, "ui"), os.path.join(DIST, "ui"))
 os.makedirs(os.path.join(DIST, "models"), exist_ok=True)
-copy_tree(os.path.join(HERE, "models", "ecapa"), os.path.join(DIST, "models", "ecapa"))
+if os.path.isdir(os.path.join(HERE, "models", "ecapa")):
+    copy_tree(os.path.join(HERE, "models", "ecapa"), os.path.join(DIST, "models", "ecapa"))
 copy_tree(os.path.join(HERE, "models", "vosk-model-small-ru-0.22"), os.path.join(DIST, "models", "vosk-model-small-ru-0.22"))
 uc = os.path.join(HERE, "unitycapture", "UnityCapture-master", "Install")
 if os.path.isdir(uc):
     copy_tree(uc, os.path.join(DIST, "unitycapture", "Install"))
-for f in ("journal.json.example", "README.md", "test_meeting.wav", "processor_server.py"):
+for f in ("journal.json.example", "README.md", "USER-GUIDE.txt", "README-macos.md", "test_meeting.wav", "processor_server.py"):
     if os.path.exists(os.path.join(HERE, f)):
         shutil.copy2(os.path.join(HERE, f), os.path.join(DIST, f))
 with open(os.path.join(DIST, "ЧИТАЙ.txt"), "w", encoding="utf-8") as f:
@@ -41,6 +42,7 @@ with open(os.path.join(DIST, "ЧИТАЙ.txt"), "w", encoding="utf-8") as f:
         "2. Настройки (шестерёнка): вход = откуда брать звук. Проще всего нажать «Установить своё устройство» (виртуальный кабель VB-Cable,\n"
         "   нужны права администратора), потом в Teams выбрать вывод «Teams transcriber». Выход = свои наушники.\n"
         "3. Микрофон и имя для оповещений, журнал top-academy (логин/пароль) и ключ API для анализа пары — по желанию.\n"
+        "   Общий архив, чат, камера, очистка через 3 дня и остальные функции описаны в USER-GUIDE.txt.\n"
         "4. Записи складываются в папку recordings рядом с программой: предмет / пара / transcript.txt.\n\n"
         "Требования: Windows 10/11 64-bit, установленный Microsoft Edge WebView2 (есть в Windows 11), 8 ГБ ОЗУ, интернет для первого запуска.\n"
         "Модель тяжёлая для процессора: на слабом ПК в настройках выбери модель medium или small.\n"

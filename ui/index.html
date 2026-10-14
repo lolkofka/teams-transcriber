@@ -33,8 +33,10 @@
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
   .meter { flex: 1; max-width: 220px; height: 8px; background: var(--card2); border-radius: 6px; overflow: hidden; position: relative; }
   .meter i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 90ms linear; box-shadow: 0 0 10px rgba(167,139,250,.6); }
-  .file { margin-left: auto; color: var(--muted); font-size: 12px; max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .file { margin-left: auto; min-width:0; flex:1; color: var(--muted); font-size: 12px; max-width: 28vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .file:hover { color: var(--text); }
+  .playback-volume { display:flex; align-items:center; gap:6px; font-size:12px; white-space:nowrap; }
+  .playback-volume input { width:100px; padding:0; }
   .icon { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; transition: .15s; }
   .icon:hover { border-color: var(--accent2); transform: rotate(20deg); }
 
@@ -113,6 +115,8 @@
   .rec-overlay .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--err); box-shadow: 0 0 12px var(--err); animation: pulse .9s infinite; }
   .rec-overlay .big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
   .rec-overlay .sub { font-size: 11px; color: var(--muted); }
+  .rec-overlay img { width:240px; max-height:180px; object-fit:contain; background:#000; border-radius:8px; }
+  .camera-preview { width:100%; max-height:240px; object-fit:contain; background:#000; border-radius:8px; margin-top:8px; display:none; }
   .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 60; cursor: zoom-out; }
   .lightbox.show { display: flex; } .lightbox img { max-width: 96vw; max-height: 94vh; border-radius: 8px; }
 
@@ -210,7 +214,9 @@
   <span id="sharing" class="pill" style="display:none"><span class="led"></span><span id="sharingText"></span></span>
   <span id="camrecPill" class="pill rec" style="display:none"><span class="led"></span><span id="camrecText"></span></span>
   <div id="file" class="file" title="открыть папку recordings"></div>
-  <button id="teamsBtn" class="btn sm" title="Открыть Teams во встроенном окне WebView2">Открыть Teams</button>
+  <label class="playback-volume" title="Громкость прослушивания Teams; запись не меняется">Звук <input type="range" id="topVol" min="0" max="100" value="100" aria-label="Громкость звука Teams"><span id="topVolv">100%</span></label>
+  <button id="teamsBtn" class="btn sm" title="Открыть Teams во встроенном окне">Открыть Teams</button>
+  <button id="archiveBtn" class="btn sm" title="Общие транскрипции, чат и все материалы пар">Архив пар</button>
   <button id="gear" class="icon" title="Настройки">⚙</button>
 </header>
 <main>
@@ -262,7 +268,7 @@
   </aside>
 </main>
 <div class="toast" id="toast"></div>
-<div class="rec-overlay" id="recOverlay"><span class="dot"></span><div><div style="font-weight:600">Запись с камеры</div><div class="sub" id="recSub">смотри в камеру</div></div><div class="big" id="recLeft">30</div></div>
+<div class="rec-overlay" id="recOverlay"><img id="recPreview" alt="Предпросмотр камеры" style="display:none"><span class="dot"></span><div><div style="font-weight:600">Запись с камеры</div><div class="sub" id="recSub">смотри в камеру</div></div><div class="big" id="recLeft">30</div></div>
 <div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
 
 <!-- ------------------------------------------------------------------ settings -->
@@ -278,6 +284,10 @@
         <select id="out"></select>
         <label class="f">Громкость выхода <span id="volv">100</span>%</label>
         <input type="range" id="vol" min="0" max="100" value="100">
+        <h3>Общий архив пар</h3>
+        <label class="f">Адрес сервера</label><input id="archiveUrl" type="url" placeholder="https://сервер/transcriber">
+        <label class="f">Ключ доступа</label><input id="archiveToken" type="password" autocomplete="off">
+        <div class="hint">Текст и чат подгружаются автоматически. Полные материалы доступны через «Архив пар». Через 3 дня подтверждённые сервером нетекстовые файлы удаляются с ПК, пока программа запущена.</div>
         <div class="vdev" id="vdev" style="margin-top:12px"><span class="led"></span><span id="vdevText">проверяю…</span></div>
         <div class="row" style="margin-top:8px"><button id="cableBtn" class="btn">Установить своё устройство</button></div>
       </div>
@@ -350,7 +360,7 @@
         <h3 style="margin-top:18px">Собрания Teams</h3>
         <label class="tgl"><input type="checkbox" id="teamsAutoJoin" checked> Входить в собрание в начале пары из расписания top-academy</label>
         <label class="tgl"><input type="checkbox" id="teamsAutoLeave" checked> Выходить после окончания пары, прощания и ухода остальных участников</label>
-        <div class="hint">Windows: приложение сопоставляет время пары со ссылкой в календаре Teams. Перед входом проверяет, что микрофон и камера выключены. Если встреча или состояние устройств не определены однозначно, вход отменяется. Для автовыхода нужны одновременно три условия: время окончания, фраза прощания в записи и один участник в Teams.</div>
+        <div class="hint">Windows и Mac: приложение сопоставляет время пары со ссылкой в календаре Teams. Перед входом проверяет, что микрофон и камера выключены. Если встреча или состояние устройств не определены однозначно, вход отменяется. Для автовыхода нужны одновременно три условия: время окончания, фраза прощания в записи и один участник в Teams.</div>
       </div>
       <div class="card">
         <h3>Виртуальная камера</h3>
@@ -364,6 +374,8 @@
           <button id="camRec" class="btn" style="flex:0 0 auto">⏺ Записать</button>
         </div>
         <div class="hint" id="camHint">Ролик сохраняется в recordings\camera и сразу становится видео виртуальной камеры. Камера должна быть свободна: в Teams её на это время выключи.</div>
+        <img id="camPreview" class="camera-preview" alt="Изображение с выбранной камеры">
+        <video id="camLive" class="camera-preview" muted autoplay playsinline aria-label="Живой предпросмотр камеры"></video>
       </div>
       <div class="card">
         <h3>Слайды с показа экрана</h3>
@@ -406,11 +418,11 @@
   const el = {};
   ['inp','out','vol','volv','model','lang','journal','vosk','diar','startBtn','cableBtn','refreshBtn','vdev','vdevText','status','statusText',
    'meter','backlog','file','stream','scroll','live','caret','toBottom','lessons','log','empty','stats','mic','micMode','micState','micMeter','micRow',
-   'gear','teamsBtn','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast',
+   'gear','teamsBtn','archiveBtn','archiveUrl','archiveToken','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast','topVol','topVolv',
    'alertOn','alertNames','alertDev','alertTest','llmOn','llmBase','llmModel','llmInterval','llmKey','jUser','jPass','jSave','jHint','askIn','askBtn','answers',
    'quickOn','quickModel','quickWords','quick','quickX','quickTtl','quickQ','quickA','quickMeta',
    'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop','teamsAutoJoin','teamsAutoLeave',
-   'vcamBtn','vcamPick','vcamHint','vcamInstall','vcamName','vcamRename','camDev','camSecs','camRec','camHint','camrecPill','camrecText','recOverlay','recSub','recLeft',
+   'vcamBtn','vcamPick','vcamHint','vcamInstall','vcamName','vcamRename','camDev','camSecs','camRec','camHint','camPreview','recPreview','camLive','camrecPill','camrecText','recOverlay','recSub','recLeft',
    'procMode','procBox','procUrl','procToken','procTest','procHint','procModel'].forEach((id) => el[id] = $('#' + id));
   const MOCK = location.search.includes('mock') || location.hash.includes('mock') || location.protocol === 'data:';  // demo feed outside pywebview
   const api = () => window.pywebview && window.pywebview.api;
@@ -461,7 +473,7 @@
   function onFinal(e) {
     el.empty.style.display = 'none';
     const lo = e.t0 - 0.5, hi = e.t1 + 0.5;
-    const victims = S.drafts.filter((w) => (w.t0 + w.t1) / 2 >= lo && (w.t0 + w.t1) / 2 <= hi);
+    const victims = e.source === 'chat' ? [] : S.drafts.filter((w) => (w.t0 + w.t1) / 2 >= lo && (w.t0 + w.t1) / 2 <= hi);
     const ids = new Set(victims.map((w) => w.id));
     S.drafts = S.drafts.filter((w) => !ids.has(w.id));
     const dying = [];
@@ -470,6 +482,7 @@
     const item = document.createElement('div'); item.className = 'item final materialize' + (e.source === 'mic' ? ' me' : '') + (e.ping ? ' ping' : '');
     item.innerHTML = `<div class="t" title="${fmt(e.t0)}–${fmt(e.t1)}">${fmt(e.t0)}</div><div class="bubble"></div>`;
     const b = item.querySelector('.bubble');
+    if (e.source === 'chat') { const tag = document.createElement('span'); tag.className = 'spk'; tag.textContent = 'Чат'; b.appendChild(tag); }
     if (e.speaker && e.speaker !== 'SPEAKER') { const s = document.createElement('span'); s.className = 'spk'; s.textContent = e.speaker.replace('SPEAKER_', 'Спикер '); if (e.source !== 'mic') s.style.background = spkColor(e.speaker); b.appendChild(s); }
     b.appendChild(words(e.text, 'w', e.source !== 'mic' ? nameRx() : null));
     S.finals.push({ t0: e.t0, t1: e.t1 });
@@ -482,6 +495,7 @@
       const item = document.createElement('div'); item.className = 'item final' + (e.source === 'mic' ? ' me' : '');
       item.innerHTML = `<div class="t">${fmt(e.t0)}</div><div class="bubble"></div>`;
       const b = item.querySelector('.bubble');
+      if (e.source === 'chat') { const tag = document.createElement('span'); tag.className = 'spk'; tag.textContent = 'Чат'; b.appendChild(tag); }
       if (e.speaker && e.speaker !== 'SPEAKER') { const s = document.createElement('span'); s.className = 'spk'; s.textContent = e.speaker.replace('SPEAKER_', 'Спикер '); if (e.source !== 'mic') s.style.background = spkColor(e.speaker); b.appendChild(s); }
       b.appendChild(words(e.text, 'w', null));
       insertSorted(item, e.t0);
@@ -528,16 +542,24 @@
     try {
       const cams = await api().cam_devices(); const cur = el.camDev.value;
       el.camDev.innerHTML = '';
-      cams.forEach((c) => { const o = new Option(c.name + (c.virtual ? '  (виртуальная)' : ''), c.index); o.dataset.virtual = c.virtual ? '1' : ''; el.camDev.add(o); });
+      cams.forEach((c) => { const o = new Option(c.name + (c.virtual ? '  (виртуальная)' : ''), c.index); o.dataset.name=c.name; o.dataset.virtual = c.virtual ? '1' : ''; el.camDev.add(o); });
       const real = cams.find((c) => !c.virtual); if (cur) el.camDev.value = cur; else if (real) el.camDev.value = real.index;
       if (!cams.length) el.camHint.textContent = 'камеры не найдены';
     } catch (e) {}
   }
   function onCamRec(e) {
-    if (e.state === 'recording') {
+    if (e.state === 'opening') {
+      el.camPreview.removeAttribute('src'); el.camPreview.style.display = 'none';
+      el.recPreview.removeAttribute('src'); el.recPreview.style.display = 'none';
+      el.recOverlay.classList.add('show'); el.recLeft.textContent = '…'; el.recSub.textContent = 'Открываю камеру, ожидаю изображение';
+      el.camRec.disabled = true;
+    } else if (e.state === 'preview') {
+      el.camPreview.src = el.recPreview.src = e.image;
+      el.camPreview.style.display = el.camLive.srcObject ? 'none' : 'block'; el.recPreview.style.display = 'block';
+    } else if (e.state === 'recording') {
       el.recOverlay.classList.add('show'); el.recLeft.textContent = e.left; el.recSub.textContent = `смотри в камеру · ${e.size} · ${e.fps} fps`;
       el.camrecPill.style.display = 'inline-flex'; el.camrecText.textContent = `запись с камеры ${e.left} с`;
-      el.camHint.textContent = `идёт запись… осталось ${e.left} с`; el.camRec.disabled = true;
+      el.camHint.textContent = `идёт запись… осталось ${e.left} с` + (e.frames != null ? ` · ${e.frames} кадров` : ' · видео поступает'); el.camRec.disabled = true;
     } else if (e.state === 'done') {
       el.recOverlay.classList.remove('show'); el.camrecPill.style.display = 'none'; el.camRec.disabled = false;
       el.camHint.textContent = 'записано: ' + base(e.file) + ` (${e.seconds} с, ${e.fps} fps) · поставлено как видео камеры`; toast('⏺ ролик записан и выбран для камеры');
@@ -549,10 +571,72 @@
   el.camRec.onclick = async () => {
     if (!el.camDev.value) { toast('камера не выбрана'); return; }
     if (el.camDev.selectedOptions[0]?.dataset.virtual) { toast('это виртуальная камера, выбери настоящую'); return; }
+    if (S.platform === 'darwin') { await recordMacCamera(); return; }
     el.camRec.disabled = true; el.camHint.textContent = 'открываю камеру…';
     const r = await api().cam_record(+el.camDev.value, +el.camSecs.value || 30);
     if (!r.ok) { el.camRec.disabled = false; el.camHint.textContent = 'ошибка: ' + r.error; toast(r.error); }
   };
+  async function recordMacCamera() {
+    let stream, identity, timer, recorder, pending=Promise.resolve(), writeError=null;
+    const seconds=Math.max(3,Math.min(300,+el.camSecs.value||30));
+    const name=el.camDev.selectedOptions[0]?.dataset.name;
+    const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;
+    const context=canvas.getContext('2d',{willReadFrequently:true});
+    function preview() {
+      if (!el.camLive.videoWidth) return false;
+      context.drawImage(el.camLive,0,0,640,360);
+      const pixels=context.getImageData(0,0,640,360).data;
+      let brightness=0;for(let i=0;i<pixels.length;i+=4) brightness+=pixels[i]+pixels[i+1]+pixels[i+2];
+      onCamRec({state:'preview',image:canvas.toDataURL('image/jpeg',.7)});
+      return brightness/(640*360*3)>.5;
+    }
+    try {
+      el.camHint.textContent='Открываю камеру…';onCamRec({state:'opening'});
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('В этом окне недоступен нативный захват камеры');
+      stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const device=devices.find(d=>d.kind==='videoinput' && d.label===name) || devices.find(d=>d.kind==='videoinput' && d.label.includes(name));
+      if (!device) throw new Error('Выбранная камера не найдена в WebKit: '+name);
+      if (stream.getVideoTracks()[0].getSettings().deviceId!==device.deviceId) {
+        stream.getTracks().forEach(t=>t.stop());
+        stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:device.deviceId},width:{ideal:1280},height:{ideal:720}},audio:false});
+      }
+      el.camLive.srcObject=stream;el.camLive.style.display='block';await el.camLive.play();
+      let ready=false;
+      for(let i=0;i<50;i++){if(preview()){ready=true;break;}await new Promise(r=>setTimeout(r,200));}
+      if(!ready) throw new Error('Камера передаёт чёрные кадры. Проверь объектив, крышку ноутбука или подключение iPhone.');
+      const mime=['video/mp4;codecs=avc1','video/mp4'].find(t=>MediaRecorder.isTypeSupported(t));
+      if(!mime) throw new Error('WebKit не поддерживает запись MP4');
+      const start=await api().cam_native_begin(seconds);if(!start.ok)throw new Error(start.error);identity=start.id;
+      recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:3000000});
+      recorder.ondataavailable=event=>{if(!event.data.size)return;pending=pending.then(async()=>{
+        const bytes=new Uint8Array(await event.data.arrayBuffer());let binary='';
+        for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+        const result=await api().cam_native_chunk(identity,btoa(binary));if(!result.ok)throw new Error(result.error);
+      }).catch(error=>{writeError=error;});};
+      const stopped=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(e.error||new Error('Ошибка записи камеры'));});
+      const began=performance.now(), firstFrame=el.camLive.getVideoPlaybackQuality?.().totalVideoFrames||0;let lastImage=began;
+      recorder.start(1000);
+      timer=setInterval(()=>{
+        if(preview())lastImage=performance.now();
+        else if(performance.now()-lastImage>2000){writeError=new Error('Изображение с камеры пропало');clearInterval(timer);if(recorder.state==='recording')recorder.stop();}
+        const quality=el.camLive.getVideoPlaybackQuality?.();
+        onCamRec({state:'recording',left:Math.max(0,seconds-Math.floor((performance.now()-began)/1000)),total:seconds,size:el.camLive.videoWidth+'×'+el.camLive.videoHeight,fps:stream.getVideoTracks()[0].getSettings().frameRate||30,frames:quality?Math.max(0,quality.totalVideoFrames-firstFrame):undefined});
+      },200);
+      await new Promise(r=>setTimeout(r,seconds*1000));if(recorder.state==='recording')recorder.stop();await stopped;clearInterval(timer);timer=null;
+      await pending;if(writeError)throw writeError;
+      const result=await api().cam_native_end(identity);identity=null;if(!result.ok)throw new Error(result.error);
+      onCamRec({...result,state:'done'});
+    } catch(error) {
+      if(recorder && recorder.state!=='inactive')recorder.stop();
+      await pending;if(identity)await api().cam_native_end(identity,true);
+      onCamRec({state:'error',error:error.message||String(error)});
+    } finally {
+      clearInterval(timer);if(stream)stream.getTracks().forEach(t=>t.stop());
+      el.camLive.srcObject=null;el.camLive.style.display='none';
+      if(el.camPreview.src)el.camPreview.style.display='block';
+    }
+  }
   el.procMode.onchange = () => { el.procBox.style.display = el.procMode.value === 'external' ? 'block' : 'none'; };
   el.procTest.onclick = async () => {
     el.procTest.disabled = true; el.procHint.textContent = 'проверяю…';
@@ -659,6 +743,7 @@
       case 'sharing': el.sharing.style.display = e.sharing ? 'inline-flex' : 'none'; el.sharing.className = 'pill sharing'; el.sharingText.textContent = 'показ экрана: ' + (e.presenter || ''); break;
       case 'analysis': renderSummary(e); break;
       case 'history': onHistory(e.items); break;
+      case 'chat': onFinal(e); break;
       case 'answer': onAnswer(e); break;
       case 'teams_mic': setMicState(e); break;
       case 'level': el.meter.style.width = Math.min(100, e.v * 300) + '%'; el.micMeter.style.width = Math.min(100, (e.mic || 0) * 300) + '%';
@@ -678,9 +763,9 @@
   };
 
   // ------------------------------------------------------------------ settings + controls
-  function lock(on) { [el.inp, el.out, el.model, el.lang, el.journal, el.vosk, el.diar, el.cableBtn, el.mic, el.micMode].forEach((x) => x.disabled = on); }
+  function lock(on) { [el.inp, el.out, el.model, el.lang, el.journal, el.vosk, el.diar, el.cableBtn, el.mic, el.micMode].forEach((x) => x.disabled = on); if (el.inp.value === 'teams-browser') el.out.disabled = true; }
   function cfg() {
-    return { input: el.inp.value, output: el.out.value, volume: +el.vol.value, model: el.model.value, language: el.lang.value.trim() || 'ru',
+    return { input: el.inp.value, output: el.out.value, volume: +el.vol.value, archive_url:el.archiveUrl.value.trim(), archive_token:el.archiveToken.value.trim(), model: el.model.value, language: el.lang.value.trim() || 'ru',
              journal: el.journal.checked, vosk: el.vosk.checked, diar: el.diar.checked,
              mic: el.mic.value, mic_mode: el.micMode.value, micName: el.mic.selectedOptions[0]?.dataset.name,
              inputName: el.inp.selectedOptions[0]?.dataset.name, outputName: el.out.selectedOptions[0]?.dataset.name,
@@ -696,7 +781,14 @@
   }
   function showSource() {
     const n = (sel) => sel.selectedOptions[0]?.dataset.name || sel.selectedOptions[0]?.textContent || '—';
-    el.srcIn.textContent = n(el.inp); el.srcOut.textContent = el.out.value === 'none' ? 'не играть' : n(el.out);
+    const direct = el.inp.value === 'teams-browser';
+    el.out.disabled = el.inp.disabled || direct; el.vol.disabled = false;
+    if (S.platform === 'darwin') {
+      el.vdev.classList.toggle('ok', direct || !!S.cable);
+      el.vdevText.textContent = direct ? 'Звук берётся из встроенного Teams. BlackHole не нужен.' :
+        (S.cable ? `В Teams выбери вывод «${S.cable.render.name}»` : 'Для Teams вне программы выберите виртуальный аудиовход, например BlackHole.');
+    }
+    el.srcIn.textContent = n(el.inp); el.srcOut.textContent = el.inp.value === 'teams-browser' ? 'звук Teams · независимо от записи' : (el.out.value === 'none' ? 'не играть' : n(el.out) + ' · независимо от записи');
     el.srcMic.textContent = el.mic.value === 'none' ? 'не пишется' : n(el.mic) + (el.micMode.value === 'teams' ? ' · когда включён в Teams' : ' · всегда');
     S.names = el.alertNames.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
   }
@@ -720,7 +812,17 @@
       if (!r.ok) { addLog('[error] ' + r.error, 'e'); el.startBtn.disabled = false; lock(false); setStatus('error', 'ошибка'); }
     } else { el.startBtn.disabled = true; setStatus('loading', 'останавливаю, дописываю очередь'); await api().stop(); }
   };
-  el.vol.oninput = () => { el.volv.textContent = el.vol.value; if (S.running) api().set_volume(+el.vol.value); };
+  let volumeSave;
+  function changeVolume(value) {
+    el.vol.value = el.topVol.value = value;
+    el.volv.textContent = value; el.topVolv.textContent = value + '%';
+    api().set_volume(+value);
+    clearTimeout(volumeSave);
+    volumeSave = setTimeout(() => api().save_settings({volume:+value}), 250);
+  }
+  el.vol.oninput = () => changeVolume(el.vol.value);
+  el.topVol.oninput = () => changeVolume(el.topVol.value);
+  el.archiveBtn.onclick = async () => { const result = await api().open_archive(); if (!result.ok) toast(result.error); };
   el.cableBtn.onclick = () => { el.cableBtn.disabled = true; addLog('=== своё виртуальное устройство ===', 'b'); (S.cable ? api().rename_cable() : api().install_cable()); };
   el.teamsBtn.onclick = async () => {
     el.teamsBtn.disabled = true;
@@ -752,7 +854,7 @@
     let d = await api().devices();
     if (d.error || !d.inputs.length) { await new Promise((r) => setTimeout(r, 1500)); d = await api().devices(); }
     S.platform = d.platform || 'win32';
-    el.teamsBtn.style.display = S.platform === 'win32' ? '' : 'none';
+    el.teamsBtn.style.display = ['win32', 'darwin'].includes(S.platform) ? '' : 'none';
     if (S.platform === 'darwin') {
       el.cableBtn.style.display = 'none';
       el.slidesOn.checked = false; el.slidesOn.disabled = true;
@@ -763,6 +865,10 @@
     const s = await api().settings();
     const inLabel = (x) => `${x.loopback ? '⟲ ' : '● '}${x.name}  (${x.rate / 1000} кГц, ${x.channels} кан.)`;
     el.inp.innerHTML = ''; el.out.innerHTML = '<option value="none">— не играть —</option>'; el.alertDev.innerHTML = `<option value="default">Основное устройство ${S.platform === 'darwin' ? 'macOS' : 'Windows'}</option>`;
+    if (S.platform === 'darwin') {
+      const direct = new Option('Teams — звук встроенного окна', 'teams-browser');
+      direct.dataset.name = 'Teams — звук встроенного окна'; el.inp.add(direct);
+    }
     d.inputs.forEach((x) => { const o = new Option(inLabel(x), x.index); o.dataset.name = x.name; el.inp.add(o); });
     d.outputs.forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; el.out.add(o);
       const a = new Option(x.name, x.index); a.dataset.name = x.name; el.alertDev.add(a); });
@@ -770,14 +876,16 @@
     d.inputs.filter((x) => !x.loopback && !/cable|transcriber|blackhole/i.test(x.name)).forEach((x) => { const o = new Option(`${x.name}  (${x.rate / 1000} кГц)${x.default ? '  · по умолчанию' : ''}`, x.index); o.dataset.name = x.name; o.dataset.def = x.default ? '1' : ''; el.mic.add(o); });
     S.cable = d.cable;
     if (d.cable) { el.vdev.classList.add('ok'); el.vdevText.textContent = `${S.platform === 'darwin' ? 'BlackHole найден' : 'своё устройство есть'}: в Teams выбери вывод «${d.cable.render.name}»`; el.cableBtn.textContent = 'Переименовать устройство'; }
-    else { el.vdev.classList.remove('ok'); el.vdevText.textContent = S.platform === 'darwin' ? 'Для записи звука Teams установите BlackHole 2ch, затем выберите его как вывод Teams и вход программы.' : 'своё виртуальное устройство не установлено (драйвер VB-Cable, ~1 МБ)'; el.cableBtn.textContent = 'Установить своё устройство'; }
+    else { el.vdev.classList.remove('ok'); el.vdevText.textContent = S.platform === 'darwin' ? 'Откройте Teams кнопкой сверху и выберите «Teams — звук встроенного окна». BlackHole нужен только для Teams вне программы.' : 'своё виртуальное устройство не установлено (драйвер VB-Cable, ~1 МБ)'; el.cableBtn.textContent = 'Установить своё устройство'; }
     const pick = (sel, name) => { for (const o of sel.options) if (o.dataset.name === name) { sel.value = o.value; return true; } return false; };
-    if (!pick(el.inp, s.inputName || s.input) && d.cable) pick(el.inp, d.cable.capture.name);
+    if (!pick(el.inp, s.inputName || s.input) && d.cable && S.platform !== 'darwin') pick(el.inp, d.cable.capture.name);
+    if (s.input === 'teams-browser') el.inp.value = 'teams-browser';
     pick(el.out, s.outputName || s.output); pick(el.alertDev, s.alertDevName);
     if (!pick(el.mic, s.micName) && !('micName' in s)) { for (const o of el.mic.options) if (o.dataset.def) { el.mic.value = o.value; break; } }  // first run: Windows default mic
     if (s.mic_mode) el.micMode.value = s.mic_mode;
     if (S.platform === 'darwin' && el.micMode.value === 'teams') el.micMode.value = 'always';
-    if (s.volume != null) { el.vol.value = s.volume; el.volv.textContent = s.volume; }
+    if (s.volume != null) { el.vol.value = el.topVol.value = s.volume; el.volv.textContent = s.volume; el.topVolv.textContent = s.volume + '%'; }
+    el.archiveUrl.value = s.archive_url || ''; el.archiveToken.value = s.archive_token || '';
     if (s.model) el.model.value = s.model; if (s.language) el.lang.value = s.language;
     ['journal', 'vosk', 'diar'].forEach((k) => { if (k in s) el[k].checked = !!s[k]; });
     if ('alert_enabled' in s) el.alertOn.checked = !!s.alert_enabled; if (s.alert_names) el.alertNames.value = s.alert_names;
@@ -793,7 +901,7 @@
     if ('autostart' in s) el.autostart.checked = !!s.autostart; if ('autostop' in s) el.autostop.checked = !!s.autostop;
     if ('teams_auto_join' in s) el.teamsAutoJoin.checked = !!s.teams_auto_join;
     if ('teams_auto_leave' in s) el.teamsAutoLeave.checked = !!s.teams_auto_leave;
-    el.teamsAutoJoin.disabled = S.platform !== 'win32'; el.teamsAutoLeave.disabled = S.platform !== 'win32';
+    el.teamsAutoJoin.disabled = !['win32','darwin'].includes(S.platform); el.teamsAutoLeave.disabled = !['win32','darwin'].includes(S.platform);
     if ('slides_enabled' in s) el.slidesOn.checked = !!s.slides_enabled; if (s.slides_interval) el.slidesInterval.value = s.slides_interval; if (s.slides_threshold) el.slidesThreshold.value = s.slides_threshold;
     if (S.platform === 'darwin') el.slidesOn.checked = false;
     if (d.error) addLog('[error] устройства: ' + d.error, 'e');

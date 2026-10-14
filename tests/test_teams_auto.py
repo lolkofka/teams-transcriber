@@ -3,8 +3,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from teams_auto import TeamsControls, match_lesson, parse_calendar_event, should_leave
-from teams_browser import TeamsBrowser
+from teams_auto import TeamsControls, control_label, match_lesson, parse_calendar_event, should_leave
+from teams_browser import TeamsBrowser, teams_microphone_origin_allowed
 
 
 class FakeButton:
@@ -14,6 +14,23 @@ class FakeButton:
 
 
 class TeamsAutoTests(unittest.TestCase):
+    def test_microphone_permission_is_scoped_to_secure_teams_page_and_frame(self):
+        teams = 'https://teams.cloud.microsoft/'
+        self.assertTrue(teams_microphone_origin_allowed(teams, teams, teams))
+        self.assertTrue(teams_microphone_origin_allowed('https://teams.microsoft.com:443/', teams, teams))
+        for other in ('http://teams.cloud.microsoft/', 'https://teams.cloud.microsoft:8443/',
+                      'https://teams.cloud.microsoft.attacker.test/', 'https://outlook.office.com/', ''):
+            for i in range(3):
+                urls = [teams] * 3
+                urls[i] = other
+                self.assertFalse(teams_microphone_origin_allowed(*urls))
+
+    def test_outlook_join_label_ignores_fluent_icons(self):
+        self.assertEqual(control_label('\uf4fb\nJoin'), 'join')
+        self.assertEqual(control_label('\uf4fbJoin'), 'join')
+        self.assertEqual(control_label('Присоединиться сейчас'), 'присоединиться сейчас')
+        self.assertEqual(control_label('Join Teams meeting'), 'join teams meeting')
+
     def setUp(self):
         self.event = parse_calendar_event(
             "Урок 9 триггеры практика, 8:30 — 10:00, Вторник, 06 октября, 2026, "
@@ -84,7 +101,7 @@ class TeamsAutoTests(unittest.TestCase):
                 self.callback = callback
                 return self
 
-        window = SimpleNamespace(events=SimpleNamespace(closed=ClosedEvent()))
+        window = SimpleNamespace(events=SimpleNamespace(closed=ClosedEvent(), before_show=ClosedEvent()))
         browser = TeamsBrowser()
         with patch("teams_browser.webview.create_window", return_value=window):
             browser.open()

@@ -8,6 +8,7 @@ control or its state cannot be identified unambiguously.
 
 import datetime as dt
 import re
+import sys
 import threading
 import time
 
@@ -32,6 +33,11 @@ DEVICE_OFF_ACTION = re.compile(r"^(?:включить|unmute\b|turn\b.*\bon\b)",
 DEVICE_ON_STATE = re.compile(r"\b(?:включ[её]н|on)\b", re.I)
 DEVICE_OFF_STATE = re.compile(r"\b(?:выключ[её]н|off|muted)\b", re.I)
 LEAVE_CONTROL = re.compile(r"^(?:leave(?: meeting)?|покинуть(?: собрание)?|выйти)(?:\s*\(|$)", re.I)
+
+
+def control_label(name):
+    # Outlook includes Fluent icon glyphs in buttons lacking aria-label.
+    return re.sub(r"\s+", " ", re.sub(r"[\ue000-\uf8ff]", "", name)).strip().lower()
 
 
 def parse_calendar_event(name):
@@ -183,10 +189,16 @@ class TeamsControls:
 class TeamsMeetingAutomation(threading.Thread):
     """Join a calendar event at its start; leave after its end and a finish signal."""
 
-    def __init__(self, browser, settings, get_lessons, log, interval=15):
+    def __init__(self, browser, settings, get_lessons, log, interval=15, controls_factory=None):
         super().__init__(daemon=True, name="TeamsMeetingAutomation")
         self.browser, self.settings, self.get_lessons, self.log = browser, settings, get_lessons, log
         self.interval = interval
+        if controls_factory is None and sys.platform == "darwin":
+            from teams_macos import MacTeamsControls
+            controls_factory = MacTeamsControls
+        self._controls_factory = controls_factory or TeamsControls
+        self._retry_at = {}
+        self._join_failures = {}
         self._stop_event = threading.Event()
         self._attempted = set()
         self._missing_logged = set()
@@ -232,7 +244,7 @@ class TeamsMeetingAutomation(threading.Thread):
         if time.monotonic() - self._calendar_refresh_at < 60:
             return
         self._calendar_refresh_at = time.monotonic()
-        tab = controls.one(lambda n, b: n.startswith("Календарь (Ctrl+") or n.startswith("Calendar (Ctrl+"))
+        tab = controls.one(lambda n, b: re.match(r"^(?:Календарь|Calendar)(?:\s*\(|$)", n.strip(), re.I))
         if tab:
             controls.invoke(tab)
             self._stop_event.wait(1)
@@ -256,11 +268,16 @@ class TeamsMeetingAutomation(threading.Thread):
         controls = self._controls
         if not controls.invoke(button):
             raise RuntimeError("не удалось открыть событие календаря")
-        self._stop_event.wait(0.6)
-        popup = controls.one(lambda n, b: n.strip().lower() in ("присоединиться", "join")
-                             and (b.AutomationId or "").endswith("primaryActionButton"))
-        if popup is None:
-            popup = controls.one(lambda n, b: n.strip().lower() in ("присоединиться", "join"))
+        popup = None
+        for _ in range(32):
+            if self._stop_event.wait(0.25):
+                return
+            popup = controls.one(lambda n, b: control_label(n) in ("присоединиться", "join")
+                                 and (b.AutomationId or "").endswith("primaryActionButton"))
+            if popup is None:
+                popup = controls.one(lambda n, b: control_label(n) in ("присоединиться", "join"))
+            if popup is not None:
+                break
         if not controls.invoke(popup):
             raise RuntimeError("в карточке события нет однозначной кнопки входа")
         for _ in range(20):
@@ -277,7 +294,7 @@ class TeamsMeetingAutomation(threading.Thread):
             raise RuntimeError("экран проверки устройств не появился")
         self._safe_device_off("mic")
         self._safe_device_off("camera")
-        join_now = controls.one(lambda n, b: n.strip().lower() in
+        join_now = controls.one(lambda n, b: control_label(n) in
                                 ("присоединиться сейчас", "join now"))
         if not controls.invoke(join_now):
             raise RuntimeError("кнопка окончательного входа не найдена")
@@ -319,7 +336,7 @@ class TeamsMeetingAutomation(threading.Thread):
             self.browser.open()
             self.browser.install_meeting_popup_handler()
             self._opened = True
-            self._controls = TeamsControls(self.browser)
+            self._controls = self._controls_factory(self.browser)
             self._stop_event.wait(2)
         controls = self._controls
         buttons = controls.buttons()
@@ -346,7 +363,8 @@ class TeamsMeetingAutomation(threading.Thread):
             return
         due = [lesson for lesson in lessons
                if lesson["start"] <= now < lesson["start"] + dt.timedelta(minutes=5)
-               and self._lesson_key(lesson) not in self._attempted]
+               and self._lesson_key(lesson) not in self._attempted
+               and time.monotonic() >= self._retry_at.get(self._lesson_key(lesson), 0)]
         if not due:
             self._ensure_calendar()
             return
@@ -363,9 +381,19 @@ class TeamsMeetingAutomation(threading.Thread):
                 self._missing_logged.add(key)
             self._ensure_calendar()
             return
-        self._attempted.add(self._lesson_key(lesson))
+        key = self._lesson_key(lesson)
         _, button = matched
-        self._join(lesson, button)
+        try:
+            self._join(lesson, button)
+        except Exception:
+            self._join_failures[key] = self._join_failures.get(key, 0) + 1
+            if self._join_failures[key] >= 3:
+                self._attempted.add(key)
+            else:
+                self._retry_at[key] = time.monotonic() + 30
+            raise
+        if self._active is not None:
+            self._attempted.add(key)
 
     @staticmethod
     def _lesson_key(lesson):

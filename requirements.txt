@@ -12,3 +12,13 @@ winotify
 pyvirtualcam
 opencv-python-headless
 pygrabber
+
+# Desktop automation, reports and packaging (Windows x64).
+uiautomation
+pycaw
+comtypes
+python-docx
+reportlab
+Pillow
+mss
+pyinstaller
