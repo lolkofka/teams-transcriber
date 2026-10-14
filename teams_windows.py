@@ -74,7 +74,7 @@ class WindowsTeamsChat:
                                ('teams-mic-guard.js', 'teams-chat.js'))
             return core.AddScriptToExecuteOnDocumentCreatedAsync(source)
 
-        # Wait off the UI thread; first navigation is held on about:blank until
+        # Wait off the UI thread; first navigation is held on a local placeholder until
         # WebView2 confirms that the document-start scripts are registered.
         task = browser.with_core_webview2(attach)
         task.GetAwaiter().GetResult()

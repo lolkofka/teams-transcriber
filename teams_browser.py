@@ -85,7 +85,9 @@ class TeamsBrowser:
             if self._window is None:
                 configure_macos_media()
                 window = webview.create_window(
-                    "Teams — Teams transcriber", "about:blank" if sys.platform == "win32" else TEAMS_URL, js_api=None,
+                    "Teams — Teams transcriber", None if sys.platform == "win32" else TEAMS_URL,
+                    html="<p>Подготовка защищённого окна Teams…</p>" if sys.platform == "win32" else None,
+                    js_api=None,
                     width=1250, height=850, min_size=(820, 600),
                     text_select=True, background_color="#202124",
                 )
