@@ -4,10 +4,19 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from teams_auto import TeamsMeetingAutomation
-from teams_windows import WindowsTeamsChat, WindowsTeamsControls, trusted_controls_source
+from teams_windows import (WindowsTeamsChat, WindowsTeamsControls,
+                           trusted_controls_source, trusted_microphone_origin)
 
 
 class WindowsTeamsChatTests(unittest.TestCase):
+    def test_microphone_permission_only_for_secure_teams_origins(self):
+        for origin in ('https://teams.microsoft.com/', 'https://teams.cloud.microsoft:443/v2/'):
+            self.assertTrue(trusted_microphone_origin(origin))
+        for origin in ('http://teams.microsoft.com/', 'https://teams.microsoft.com:444/',
+                       'https://teams.microsoft.com.attacker.test/',
+                       'https://outlook.office.com/', ''):
+            self.assertFalse(trusted_microphone_origin(origin))
+
     def test_windows_automation_selects_dom_controls(self):
         with patch('teams_auto.sys.platform', 'win32'):
             automation = TeamsMeetingAutomation(None, lambda: {}, lambda _: [], lambda _: None)

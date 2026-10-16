@@ -26,6 +26,16 @@ def trusted_controls_source(source):
         return False
 
 
+def trusted_microphone_origin(source):
+    try:
+        url = urlsplit(str(source))
+        return (url.scheme == 'https' and url.hostname in
+                ('teams.microsoft.com', 'teams.cloud.microsoft') and
+                url.port in (None, 443))
+    except ValueError:
+        return False
+
+
 class WindowsTeamsChat:
     def __init__(self):
         self._frames = {}
@@ -110,6 +120,14 @@ class WindowsTeamsChat:
 
     def install(self, browser):
         self._browser = browser
+        from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind, CoreWebView2PermissionState
+
+        def microphone_permission(sender, args):
+            if (args.PermissionKind == CoreWebView2PermissionKind.Microphone and
+                    trusted_microphone_origin(args.Uri) and
+                    trusted_microphone_origin(sender.Source)):
+                args.State = CoreWebView2PermissionState.Allow
+
         def message(sender, args):
             try:
                 self.receive(str(args.Source), str(args.TryGetWebMessageAsString()), sender)
@@ -127,15 +145,24 @@ class WindowsTeamsChat:
             browser._require_window().native.webview.WebMessageReceived -= browser._require_window().native.browser.on_script_notify
             core.WebMessageReceived += message
             core.FrameCreated += frame_created
-            self._handlers.append((core, message, frame_created))
+            core.PermissionRequested += microphone_permission
+            self._handlers.append((core, message, frame_created, microphone_permission))
             source = '\n'.join(Path(RESOURCE_DIR, 'ui', name).read_text(encoding='utf-8') for name in
                                ('teams-mic-guard.js', 'teams-chat.js', 'teams-automation.js'))
-            return core.AddScriptToExecuteOnDocumentCreatedAsync(source)
+            tasks = [core.AddScriptToExecuteOnDocumentCreatedAsync(source)]
+            # A denied permission saved in the WebView2 profile otherwise bypasses
+            # PermissionRequested and keeps every selected Teams microphone silent.
+            for origin in ('https://teams.microsoft.com', 'https://teams.cloud.microsoft'):
+                tasks.append(core.Profile.SetPermissionStateAsync(
+                    CoreWebView2PermissionKind.Microphone, origin,
+                    CoreWebView2PermissionState.Allow))
+            return tasks
 
         # Wait off the UI thread; first navigation is held on a local placeholder until
         # WebView2 confirms that the document-start scripts are registered.
-        task = browser.with_core_webview2(attach)
-        task.GetAwaiter().GetResult()
+        tasks = browser.with_core_webview2(attach)
+        for task in tasks:
+            task.GetAwaiter().GetResult()
 
 
 class WindowsTeamsControls(MacTeamsControls):

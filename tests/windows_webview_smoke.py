@@ -16,6 +16,8 @@ from teams_windows import WindowsTeamsChat
 
 folder = tempfile.TemporaryDirectory()
 Path(folder.name, 'smoke.html').write_text('''<!doctype html><html><body>
+<button data-tid="microphone-button" aria-label="Unmute mic"
+ onclick="this.setAttribute('aria-label',this.getAttribute('aria-label')==='Unmute mic'?'Mute mic':'Unmute mic')">Mic</button>
 <div><h2>Meeting chat</h2><section><article data-message-id="fixture-message">
 <h4 aria-label="Message by Teacher">Message by Teacher</h4>
 <div data-tid="message-body">Windows chat fixture</div>
@@ -23,7 +25,11 @@ Path(folder.name, 'smoke.html').write_text('''<!doctype html><html><body>
 </article></section></div><script>
 navigator.mediaDevices.getUserMedia({audio:true}).then(stream => {
  const track=stream.getAudioTracks()[0]; track.enabled=true;
- window.fixtureGuardDenied=!track.enabled && !track.clone().enabled;
+ window.fixtureTrack=track; window.fixtureClone=track.clone();
+ window.fixtureGuardDenied=!track.enabled && !window.fixtureClone.enabled;
+});
+navigator.permissions.query({name:'microphone'}).then(permission => {
+ window.fixtureMicPermission=permission.state;
 });
 </script></body></html>''', encoding='utf-8')
 original_install = WindowsTeamsChat.install
@@ -62,6 +68,43 @@ def check():
         state = json.loads(json.loads(str(guard.GetAwaiter().GetResult())))
         assert state == dict(guard=True, chat=True, denied=True, api=False), state
         assert browser.dom.chat_messages()[0]['text'] == 'Windows chat fixture'
+        def evaluate(script):
+            task = browser.with_core_webview2(lambda core: core.ExecuteScriptAsync(script))
+            return json.loads(str(task.GetAwaiter().GetResult()))
+
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and evaluate('window.fixtureMicPermission') != 'granted':
+            time.sleep(.05)
+        assert evaluate('window.fixtureMicPermission') == 'granted', 'Teams microphone permission was not granted'
+
+        button = "document.querySelector('[data-tid=\"microphone-button\"]')"
+        evaluate(button + '.click()')  # Automation must not activate the microphone.
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if evaluate(button + '.getAttribute("aria-label")') == 'Unmute mic':
+                break
+            time.sleep(.05)
+        assert evaluate('!fixtureTrack.enabled && !fixtureClone.enabled')
+
+        rect = evaluate('JSON.stringify((()=>{const r=' + button +
+                        '.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})())')
+        rect = json.loads(rect)
+        for kind, buttons in [('mousePressed', 1), ('mouseReleased', 0)]:
+            args = json.dumps(dict(type=kind, x=rect['x'], y=rect['y'],
+                                   button='left', buttons=buttons, clickCount=1))
+            task = browser.with_core_webview2(lambda core: core.CallDevToolsProtocolMethodAsync(
+                'Input.dispatchMouseEvent', args))
+            task.GetAwaiter().GetResult()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if evaluate('fixtureTrack.enabled && fixtureClone.enabled'):
+                break
+            time.sleep(.05)
+        assert evaluate(button + '.getAttribute("aria-label")') == 'Mute mic'
+        assert evaluate('fixtureTrack.enabled && fixtureClone.enabled'), 'Manual unmute left tracks disabled'
+
+        evaluate(button + '.click()')
+        assert evaluate('!fixtureTrack.enabled && !fixtureClone.enabled'), 'Mute did not disable tracks'
         result['ok'] = True
         print('WINDOWS WEBVIEW2 SMOKE OK', flush=True)
     except Exception as error:
