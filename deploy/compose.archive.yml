@@ -21,6 +21,23 @@ services:
       - traefik.http.routers.transcriber-archive.middlewares=transcriber-strip
       - traefik.http.middlewares.transcriber-strip.stripprefix.prefixes=/transcriber
       - traefik.http.services.transcriber-archive.loadbalancer.server.port=8766
+  downloads:
+    image: nginx:latest
+    restart: unless-stopped
+    volumes:
+      - /hdd/transcriber-releases:/usr/share/nginx/html:ro
+    networks:
+      - virtual-hosts
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=virtual-hosts
+      - traefik.http.routers.transcriber-downloads.rule=Host(`bhpcubes.ru`) && PathPrefix(`/teams-transcriber-releases/`)
+      - traefik.http.routers.transcriber-downloads.entrypoints=websecure
+      - traefik.http.routers.transcriber-downloads.tls=true
+      - traefik.http.routers.transcriber-downloads.tls.certresolver=letsencrypt
+      - traefik.http.routers.transcriber-downloads.middlewares=transcriber-downloads-strip
+      - traefik.http.middlewares.transcriber-downloads-strip.stripprefix.prefixes=/teams-transcriber-releases
+      - traefik.http.services.transcriber-downloads.loadbalancer.server.port=80
 networks:
   virtual-hosts:
     external: true

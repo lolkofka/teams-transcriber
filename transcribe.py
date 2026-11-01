@@ -203,11 +203,20 @@ class Monitor(threading.Thread):
         else:
             raise RuntimeError(f"cannot open output '{self.name}': {last}")
         self.stop_event = threading.Event()
+        self.last_write_at = time.monotonic()
+        self.error = None
 
     def push(self, stereo):
         try:
             self.q.put_nowait(stereo)
         except queue.Full:
+            pass
+
+    def request_stop(self):
+        self.stop_event.set()
+        try:
+            self.stream.stop_stream()  # wake a blocked write after the output device sleeps
+        except Exception:
             pass
 
     def run(self):
@@ -231,7 +240,10 @@ class Monitor(threading.Thread):
             y = np.clip(x * self.volume, -1, 1).astype(np.float32)
             try:
                 self.stream.write(np.ascontiguousarray(y).tobytes())
-            except Exception:
+                self.last_write_at = time.monotonic()
+            except Exception as e:
+                if not self.stop_event.is_set():
+                    self.error = str(e)
                 break
         try:
             self.stream.stop_stream(); self.stream.close()
@@ -409,6 +421,18 @@ class Recorder(threading.Thread):
         self.monitor = None
         self.level = 0.0   # last chunk peak (0..1) for UI meters
         self.error = None
+        self.last_frame_at = time.monotonic()
+        self.last_signal_at = self.last_frame_at
+        self._stream = None
+
+    def request_stop(self):
+        self.stop_event.set()
+        stream = self._stream
+        if stream is not None:
+            try:
+                stream.stop_stream()  # wake a blocked WASAPI read after a long idle period
+            except Exception:
+                pass
 
     def run(self):
         pyaudio = _pyaudio()
@@ -440,6 +464,7 @@ class Recorder(threading.Thread):
                             input_device_index=dev["index"], frames_per_buffer=frames_per_buffer)
         except Exception as e:
             self.error = f"cannot open input '{dev['name']}': {e}"; self.q.put(None); p.terminate(); PA_LOCK.release(); return
+        self._stream = stream
         if self.monitor_index is not None:
             try:
                 self.monitor = Monitor(p, self.monitor_index, in_sr, self.monitor_volume)
@@ -457,6 +482,7 @@ class Recorder(threading.Thread):
         try:
             while not self.stop_event.is_set():
                 data = stream.read(frames_per_buffer, exception_on_overflow=False)
+                self.last_frame_at = time.monotonic()
                 now = time.time()
                 # WASAPI loopback delivers nothing while no app renders audio: pad the gap with silence
                 if expected is not None and now - expected > 0.5:
@@ -477,6 +503,8 @@ class Recorder(threading.Thread):
                 x = decim(np.ascontiguousarray(x, dtype=np.float32))
                 pk = float(np.abs(x).max()) if len(x) else 0.0
                 self.level = pk
+                if pk > 0.003:
+                    self.last_signal_at = self.last_frame_at
                 run_peak = max(pk, run_peak * 0.997)          # ~30 s to decay by half
                 if run_peak > 0.003:                          # ignore idle noise floor
                     gain = min(60.0, 0.6 / run_peak)          # up to +35 dB, never attenuate
@@ -485,15 +513,25 @@ class Recorder(threading.Thread):
                 if wav is not None:
                     wav.writeframes((np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes())
                 self.q.put((now, x))
+        except Exception as e:
+            if not self.stop_event.is_set():
+                self.error = f"capture failed: {e}"
         finally:
             if locked:
                 PA_LOCK.release()
             if self.monitor is not None:
-                self.monitor.stop_event.set()
+                self.monitor.request_stop()
                 self.monitor.join(timeout=2)
             with PA_LOCK:
-                stream.stop_stream()
-                stream.close()
+                try:
+                    stream.stop_stream()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+                self._stream = None
                 p.terminate()
             if wav is not None:
                 wav.close()

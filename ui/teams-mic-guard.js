@@ -2,11 +2,12 @@
 (() => {
   const host = location.hostname;
   if (!(host === 'teams.microsoft.com' || host.endsWith('.teams.microsoft.com') || host === 'teams.cloud.microsoft') || window.__teamsMicGuard) return;
-  let allowed = false, clicking = false, lastClick = 0, wasPrejoin = false;
+  let allowed = false, pendingEnable = false, clicking = false, lastClick = 0, wasPrejoin = false;
   const tracks = new Set(), protectedTracks = new WeakSet();
   const state = window.__teamsMicGuard = {status: () => ({allowed, tracks: tracks.size})};
   function deny() {
     allowed = false;
+    pendingEnable = false;
     for (const track of tracks) track.enabled = false;
   }
   state.reset = deny;
@@ -82,8 +83,11 @@
     const isClick = event.type === 'click' && mic.button.contains(event.target);
     const isShortcut = event.type === 'keydown' && event.key?.toLowerCase() === 'm' && event.shiftKey && (event.metaKey || event.ctrlKey);
     if (!isClick && !isShortcut) return;
-    allowed = !mic.on;
-    if (!allowed) deny();
+    if (mic.on) deny();
+    else {
+      allowed = true;
+      pendingEnable = true;
+    }
   }
   document.addEventListener('click', explicitAction, true);
   document.addEventListener('keydown', explicitAction, true);
@@ -92,6 +96,13 @@
     if (prejoin && !wasPrejoin) deny();
     wasPrejoin = prejoin;
     const mic = microphone();
+    if (pendingEnable && mic?.on === true) {
+      pendingEnable = false;
+      // Teams can keep the same getUserMedia track after unmuting. The guard
+      // disabled it on entry, so restore it after Teams confirms the action.
+      for (const track of tracks) track.enabled = true;
+    }
+    if (allowed && !pendingEnable && mic?.on === false) deny();
     if (!allowed && mic?.on === true && !mic.button.disabled && Date.now() - lastClick > 1000) {
       clicking = true; lastClick = Date.now();
       try { mic.button.click(); } finally { clicking = false; }

@@ -1,9 +1,9 @@
 """Windows Teams calendar and meeting automation.
 
-Only the Teams window owned by this process is inspected. The calendar is an
-Outlook iframe, so its events are read through Windows UI Automation rather
-than JavaScript in the top-level Teams page. All actions fail closed when a
-control or its state cannot be identified unambiguously.
+Only the Teams window owned by this process is inspected. Its calendar is an
+Outlook iframe; the Windows and macOS adapters inspect each trusted frame and
+invoke controls through JavaScript in that frame. All actions fail closed when
+a control or its state cannot be identified unambiguously.
 """
 
 import datetime as dt
@@ -89,7 +89,7 @@ def should_leave(now, end, farewell_at, participant_count):
 
 
 class TeamsControls:
-    """UI Automation adapter scoped to our own embedded Teams window."""
+    """Legacy UI Automation adapter kept for compatibility with older callers."""
 
     def __init__(self, browser):
         self.browser = browser
@@ -196,6 +196,9 @@ class TeamsMeetingAutomation(threading.Thread):
         if controls_factory is None and sys.platform == "darwin":
             from teams_macos import MacTeamsControls
             controls_factory = MacTeamsControls
+        elif controls_factory is None and sys.platform == "win32":
+            from teams_windows import WindowsTeamsControls
+            controls_factory = WindowsTeamsControls
         self._controls_factory = controls_factory or TeamsControls
         self._retry_at = {}
         self._join_failures = {}

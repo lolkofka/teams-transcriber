@@ -1,10 +1,10 @@
-// Calendar and call controls from each trusted frame of our own WKWebView.
+// Calendar and call controls from each trusted frame of the embedded Teams browser.
 (() => {
   const host = location.hostname || (() => { try { return parent.location.hostname; } catch (_) { return ''; } })();
   const trusted = host === 'teams.microsoft.com' || host.endsWith('.teams.microsoft.com') ||
     host === 'teams.cloud.microsoft' || ['outlook.office.com', 'outlook.office365.com', 'outlook.cloud.microsoft'].includes(host);
   if (!trusted || window.__teamsAutomation) return;
-  const bridge = window.webkit?.messageHandlers?.teamsAutomation;
+  const bridge = window.webkit?.messageHandlers?.teamsAutomation || window.chrome?.webview;
   if (!bridge) return;
   const frame = crypto.randomUUID(), ids = new WeakMap();
   let next = 0, nodes = new Map();
@@ -35,7 +35,7 @@
         checked, disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true'});
     }
     nodes = current;
-    bridge.postMessage(JSON.stringify({frame, controls}));
+    bridge.postMessage(JSON.stringify({kind: 'controls', frame, controls}));
   }
   window.__teamsAutomation = {
     snapshot,
