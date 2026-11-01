@@ -4,7 +4,7 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("faster_whisper", "ctranslate2", "speechbrain", "silero_vad", "vosk", "webview", "uiautomation",
+for pkg in ("faster_whisper", "ctranslate2", "speechbrain", "silero_vad", "vosk", "webview", "pystray", "uiautomation",
             "torchaudio", "comtypes", "pycaw", "pyvirtualcam", "cv2", "docx", "reportlab", "winotify", "mss", "huggingface_hub", "tokenizers", "sentencepiece", "hyperpyyaml", "ruamel.yaml"):
     try:
         d, b, h = collect_all(pkg)

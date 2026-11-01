@@ -102,7 +102,9 @@ class TeamsBrowser:
                     window.events.before_show += self._configure_macos
                 elif sys.platform == "win32":
                     from teams_windows import WindowsTeamsChat
-                    self.dom = WindowsTeamsChat()
+                    from teams_audio import TeamsAudioTap
+                    self.audio = TeamsAudioTap()
+                    self.dom = WindowsTeamsChat(self.audio)
                     initialized = threading.Event()
 
                     def configure_windows():

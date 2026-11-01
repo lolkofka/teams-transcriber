@@ -8,6 +8,7 @@ torch
 torchaudio
 vosk==0.3.45
 pywebview
+pystray==0.19.5
 winotify
 pyvirtualcam
 opencv-python-headless

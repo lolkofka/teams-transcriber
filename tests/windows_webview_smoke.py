@@ -58,9 +58,9 @@ def check():
                 break
             time.sleep(.2)
         guard = browser.with_core_webview2(lambda core: core.ExecuteScriptAsync(
-            'JSON.stringify({guard:!!window.__teamsMicGuard,chat:!!window.__teamsChat,denied:window.fixtureGuardDenied===true,api:Object.keys(window.pywebview?.api||{}).length>0})'))
+            'JSON.stringify({guard:!!window.__teamsMicGuard,chat:!!window.__teamsChat,audio:!!window.__teamsAudioTap,denied:window.fixtureGuardDenied===true,api:Object.keys(window.pywebview?.api||{}).length>0})'))
         state = json.loads(json.loads(str(guard.GetAwaiter().GetResult())))
-        assert state == dict(guard=True, chat=True, denied=True, api=False), state
+        assert state == dict(guard=True, chat=True, audio=True, denied=True, api=False), state
         assert browser.dom.chat_messages()[0]['text'] == 'Windows chat fixture'
         result['ok'] = True
         print('WINDOWS WEBVIEW2 SMOKE OK', flush=True)

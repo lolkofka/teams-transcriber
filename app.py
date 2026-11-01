@@ -146,6 +146,8 @@ class Api:
         self._cfg = {}
         self._native_cam = None
         self._cam_lock = threading.Lock()
+        self._audio_stream = None
+        self._audio_stream_lock = threading.Lock()
         self._notifier = None
         self._meeting_auto = None
         from audio_monitor import AudioMonitor
@@ -218,6 +220,40 @@ class Api:
                 time.sleep(0.2)
 
     # ---------------------------------------------------------------- devices / settings
+    def audio_stream_status(self):
+        with self._audio_stream_lock:
+            stream = self._audio_stream
+            cfg = self.settings()
+            return stream.status() if stream else {
+                "running": False, "state": "stopped", "error": "",
+                "destination": cfg.get("audio_stream_destination", "")}
+
+    def audio_stream_start(self, destination):
+        try:
+            from audio_stream import AudioStreamSender, validate_destination
+            destination = str(destination).strip()
+            validate_destination(destination)
+            self._teams.open()
+            tap = self._teams.audio
+            if tap is None or not tap.installed.wait(15):
+                raise RuntimeError("Не удалось подключить входящий звук Teams")
+            with self._audio_stream_lock:
+                if self._audio_stream is None or not self._audio_stream.status()["running"]:
+                    stream = AudioStreamSender(self._teams, destination)
+                    stream.start()
+                    self._audio_stream = stream
+                    self.save_settings({"audio_stream_destination": destination})
+            return dict(self.audio_stream_status(), ok=True)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def audio_stream_stop(self):
+        with self._audio_stream_lock:
+            stream, self._audio_stream = self._audio_stream, None
+            if stream is not None:
+                stream.close()
+        return dict(self.audio_stream_status(), ok=True)
+
     def devices(self):
         try:
             self._inputs = T.list_input_devices()
@@ -450,8 +486,8 @@ class Api:
         try:
             browser_audio = cfg.get("input") == "teams-browser"
             if browser_audio:
-                if sys.platform != "darwin":
-                    raise RuntimeError("Прямой захват встроенного Teams доступен на Mac")
+                if sys.platform not in ("darwin", "win32"):
+                    raise RuntimeError("Прямой захват встроенного Teams доступен на Windows и Mac")
                 self._teams.open()
                 if not self._teams.audio.installed.wait(15):
                     raise RuntimeError(self._teams.audio.error or "Не удалось подключить звук встроенного Teams")
@@ -869,7 +905,20 @@ def main():
         window.events.shown += lambda: install_window_menu(window, api._teams)
     window.events.loaded += api._start_teams_auto
 
+    tray = None
+    if sys.platform == "win32":
+        try:
+            from windows_tray import WindowsTray
+            tray = WindowsTray(window, ICON, log_exc)
+        except Exception:
+            log_exc()  # Missing tray dependencies must not prevent normal use.
+
     def on_closing():
+        if tray is not None and tray.hide_on_close():
+            return False
+        if tray is not None:
+            tray.stop()
+        api.audio_stream_stop()
         api._archive.close()
         api._monitor.close()
         if api._meeting_auto is not None:
@@ -891,8 +940,13 @@ def main():
     if sys.platform == "win32":
         profile = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
                                "TeamsTranscriber", "webview2")
-        webview.start(gui="edgechromium", debug="--debug" in sys.argv,
-                      private_mode=False, storage_path=profile)
+        try:
+            webview.start(tray.run if tray is not None else None,
+                          gui="edgechromium", debug="--debug" in sys.argv,
+                          private_mode=False, storage_path=profile)
+        finally:
+            if tray is not None:
+                tray.stop()
     else:
         webview.start(debug="--debug" in sys.argv, private_mode=False, icon=MAC_ICON if sys.platform == "darwin" else None)
 

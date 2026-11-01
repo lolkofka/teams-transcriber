@@ -1,9 +1,10 @@
-// Injected at document start in our Teams WKWebView, including Teams frames.
+// Injected at document start in our Teams WebView2/WKWebView, including frames.
 // Only received WebRTC tracks enter this graph; getUserMedia is untouched.
 (() => {
   const allowed = h => h === 'teams.microsoft.com' || h.endsWith('.teams.microsoft.com') || h === 'teams.cloud.microsoft';
   if (!allowed(location.hostname) || window.__teamsAudioTap) return;
-  const bridge = window.webkit?.messageHandlers?.teamsAudio;
+  const bridge = window.webkit?.messageHandlers?.teamsAudio ||
+    (window.chrome?.webview && {postMessage: message => window.chrome.webview.postMessage(message)});
   if (!bridge || !window.RTCPeerConnection) return;
   const state = window.__teamsAudioTap = { tracks: new Map(), error: null };
   const frame = crypto.randomUUID();

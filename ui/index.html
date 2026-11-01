@@ -285,6 +285,11 @@
         <select id="out"></select>
         <label class="f">Громкость выхода <span id="volv">100</span>%</label>
         <input type="range" id="vol" min="0" max="100" value="100">
+        <h3>Входящий звук Teams по сети</h3>
+        <label class="f" for="streamAddress">Адрес передачи потока</label>
+        <input id="streamAddress" type="url" placeholder="http://192.168.1.50:8767/audio/receive" autocomplete="off" spellcheck="false">
+        <div class="row" style="margin-top:8px"><button id="streamStart" class="btn">Включить поток</button><button id="streamStop" class="btn" disabled>Остановить поток</button></div>
+        <div class="hint" id="streamStatus">Выключен. Передаётся входящий звук всех собеседников встроенного Teams, без вашего микрофона. Работает независимо от записи.</div>
         <h3>Общий архив пар</h3>
         <label class="f">Адрес сервера</label><input id="archiveUrl" type="url" placeholder="https://сервер/transcriber">
         <label class="f">Ключ доступа</label><input id="archiveToken" type="password" autocomplete="off">
@@ -419,7 +424,7 @@
   const el = {};
   ['inp','out','vol','volv','model','lang','journal','vosk','diar','startBtn','cableBtn','refreshBtn','vdev','vdevText','status','statusText',
    'meter','backlog','file','stream','scroll','live','caret','toBottom','lessons','log','empty','stats','mic','micMode','micState','micMeter','micRow',
-   'gear','teamsBtn','archiveBtn','helpBtn','archiveUrl','archiveToken','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast','topVol','topVolv',
+   'gear','teamsBtn','archiveBtn','helpBtn','archiveUrl','archiveToken','streamAddress','streamStart','streamStop','streamStatus','modal','closeBtn','srcIn','srcOut','srcMic','nowCard','summary','sumHint','analyzeBtn','toast','topVol','topVolv',
    'alertOn','alertNames','alertDev','alertTest','llmOn','llmBase','llmModel','llmInterval','llmKey','jUser','jPass','jSave','jHint','askIn','askBtn','answers',
    'quickOn','quickModel','quickWords','quick','quickX','quickTtl','quickQ','quickA','quickMeta',
    'slidesOn','slidesInterval','slidesThreshold','docxBtn','pdfBtn','sharing','sharingText','lightbox','lightboxImg','notifyOn','notifyLead','autostart','autostop','teamsAutoJoin','teamsAutoLeave',
@@ -764,9 +769,41 @@
   };
 
   // ------------------------------------------------------------------ settings + controls
+  let streamPending = false;
+  function renderStream(s, restoreAddress = false) {
+    if (restoreAddress || s.running) el.streamAddress.value = s.destination || '';
+    el.streamStart.disabled = streamPending || !!s.running; el.streamStop.disabled = streamPending || !s.running;
+    el.streamAddress.disabled = streamPending || !!s.running;
+    const messages = {
+      sending: 'Передаём входящий звук на Mac. Ваш микрофон в поток не входит.',
+      connecting: 'Подключаемся к приёмнику на Mac…',
+      retrying: 'Приёмник недоступен, повторяем подключение. ' + (s.error || ''),
+      error: 'Передача остановлена: ' + (s.error || ''),
+      stopped: 'Поток выключен. Вставьте полный адрес приёмника на Mac, включая путь.'
+    };
+    el.streamStatus.textContent = messages[s.state] || messages.stopped;
+  }
+  el.streamStart.onclick = async () => {
+    streamPending = true;
+    el.streamStart.disabled = true; el.streamAddress.disabled = true;
+    try {
+      const s = await api().audio_stream_start(el.streamAddress.value.trim());
+      streamPending = false;
+      if (!s.ok) { toast(s.error); el.streamStart.disabled = false; el.streamAddress.disabled = false; return; }
+      renderStream(s);
+    } catch (e) { streamPending = false; toast(String(e)); el.streamStart.disabled = false; el.streamAddress.disabled = false; }
+  };
+  el.streamStop.onclick = async () => {
+    const s = await api().audio_stream_stop();
+    if (s.ok) renderStream(s); else toast(s.error);
+  };
+  setInterval(async () => {
+    if (!api()?.audio_stream_status) return;
+    try { renderStream(await api().audio_stream_status()); } catch (_) {}
+  }, 2000);
   function lock(on) { [el.inp, el.out, el.model, el.lang, el.journal, el.vosk, el.diar, el.cableBtn, el.mic, el.micMode].forEach((x) => x.disabled = on); if (el.inp.value === 'teams-browser') el.out.disabled = true; }
   function cfg() {
-    return { input: el.inp.value, output: el.out.value, volume: +el.vol.value, archive_url:el.archiveUrl.value.trim(), archive_token:el.archiveToken.value.trim(), model: el.model.value, language: el.lang.value.trim() || 'ru',
+    return { input: el.inp.value, output: el.out.value, volume: +el.vol.value, archive_url:el.archiveUrl.value.trim(), archive_token:el.archiveToken.value.trim(), audio_stream_destination:el.streamAddress.value.trim(), model: el.model.value, language: el.lang.value.trim() || 'ru',
              journal: el.journal.checked, vosk: el.vosk.checked, diar: el.diar.checked,
              mic: el.mic.value, mic_mode: el.micMode.value, micName: el.mic.selectedOptions[0]?.dataset.name,
              inputName: el.inp.selectedOptions[0]?.dataset.name, outputName: el.out.selectedOptions[0]?.dataset.name,
@@ -784,7 +821,10 @@
     const n = (sel) => sel.selectedOptions[0]?.dataset.name || sel.selectedOptions[0]?.textContent || '—';
     const direct = el.inp.value === 'teams-browser';
     el.out.disabled = el.inp.disabled || direct; el.vol.disabled = false;
-    if (S.platform === 'darwin') {
+    if (direct) {
+      el.vdev.classList.add('ok');
+      el.vdevText.textContent = 'Входящий звук встроенного Teams. Ваш микрофон захватывается отдельно.';
+    } else if (S.platform === 'darwin') {
       el.vdev.classList.toggle('ok', direct || !!S.cable);
       el.vdevText.textContent = direct ? 'Звук берётся из встроенного Teams. BlackHole не нужен.' :
         (S.cable ? `В Teams выбери вывод «${S.cable.render.name}»` : 'Для Teams вне программы выберите виртуальный аудиовход, например BlackHole.');
@@ -865,10 +905,11 @@
       el.vcamInstall.style.display = 'none'; el.vcamRename.style.display = 'none';
     }
     const s = await api().settings();
+    if (api().audio_stream_status) renderStream(await api().audio_stream_status(), true);
     const inLabel = (x) => `${x.loopback ? '⟲ ' : '● '}${x.name}  (${x.rate / 1000} кГц, ${x.channels} кан.)`;
     el.inp.innerHTML = ''; el.out.innerHTML = '<option value="none">— не играть —</option>'; el.alertDev.innerHTML = `<option value="default">Основное устройство ${S.platform === 'darwin' ? 'macOS' : 'Windows'}</option>`;
-    if (S.platform === 'darwin') {
-      const direct = new Option('Teams — звук встроенного окна', 'teams-browser');
+    if (['win32', 'darwin'].includes(S.platform)) {
+      const direct = new Option('Teams — входящий звук без вашего микрофона', 'teams-browser');
       direct.dataset.name = 'Teams — звук встроенного окна'; el.inp.add(direct);
     }
     d.inputs.forEach((x) => { const o = new Option(inLabel(x), x.index); o.dataset.name = x.name; el.inp.add(o); });

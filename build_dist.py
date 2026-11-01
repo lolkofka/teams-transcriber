@@ -32,7 +32,7 @@ copy_tree(os.path.join(HERE, "models", "vosk-model-small-ru-0.22"), os.path.join
 uc = os.path.join(HERE, "unitycapture", "UnityCapture-master", "Install")
 if os.path.isdir(uc):
     copy_tree(uc, os.path.join(DIST, "unitycapture", "Install"))
-for f in ("journal.json.example", "README.md", "USER-GUIDE.txt", "README-macos.md", "test_meeting.wav", "processor_server.py"):
+for f in ("journal.json.example", "README.md", "USER-GUIDE.txt", "README-macos.md", "test_meeting.wav", "processor_server.py", "receive_audio.py", "audio_receiver.py"):
     if os.path.exists(os.path.join(HERE, f)):
         shutil.copy2(os.path.join(HERE, f), os.path.join(DIST, f))
 with open(os.path.join(DIST, "ЧИТАЙ.txt"), "w", encoding="utf-8") as f:

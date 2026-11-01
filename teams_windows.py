@@ -1,6 +1,6 @@
-"""WebView2 document-start microphone guard and read-only meeting chat bridge.
+"""WebView2 document-start microphone guard, received audio and chat bridge.
 
-No Python API is exposed to the Teams page. Only bounded chat snapshots from
+No Python API is exposed to the Teams page. Only bounded audio/chat messages from
 trusted HTTPS Teams documents are accepted, including child frames.
 """
 import json
@@ -13,7 +13,8 @@ from paths import RESOURCE_DIR
 
 
 class WindowsTeamsChat:
-    def __init__(self):
+    def __init__(self, audio=None):
+        self.audio = audio
         self._frames = {}
         self._lock = threading.Lock()
         self._handlers = []
@@ -26,7 +27,12 @@ class WindowsTeamsChat:
                     url.port not in (None, 443) or not isinstance(body, str) or len(body) > 1500000):
                 return
             data = json.loads(body)
-            if not isinstance(data, dict) or data.get('kind') != 'chat' or not isinstance(data.get('messages'), list):
+            if not isinstance(data, dict):
+                return
+            if data.get('kind') in ('pcm', 'error', 'ready') and self.audio is not None:
+                self.audio.receive(url.hostname, body)
+                return
+            if data.get('kind') != 'chat' or not isinstance(data.get('messages'), list):
                 return
             key = data.get('frame')
             if not isinstance(key, str) or not 1 <= len(key) <= 100:
@@ -71,10 +77,12 @@ class WindowsTeamsChat:
             core.FrameCreated += frame_created
             self._handlers.append((core, message, frame_created))
             source = '\n'.join(Path(RESOURCE_DIR, 'ui', name).read_text(encoding='utf-8') for name in
-                               ('teams-mic-guard.js', 'teams-chat.js'))
+                               ('teams-mic-guard.js', 'teams-chat.js', 'teams-audio.js'))
             return core.AddScriptToExecuteOnDocumentCreatedAsync(source)
 
         # Wait off the UI thread; first navigation is held on a local placeholder until
         # WebView2 confirms that the document-start scripts are registered.
         task = browser.with_core_webview2(attach)
         task.GetAwaiter().GetResult()
+        if self.audio is not None:
+            self.audio.installed.set()

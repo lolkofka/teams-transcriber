@@ -13,6 +13,20 @@ from teams_audio import AudioTimeline, TeamsAudioTap, TeamsBrowserRecorder
 
 
 class TeamsAudioTests(unittest.TestCase):
+    def test_recording_and_network_have_independent_bounded_subscriptions(self):
+        tap = TeamsAudioTap(); tap.installed.set()
+        recording, network = tap.subscribe(), tap.subscribe()
+        for _ in range(80):
+            tap.receive('teams.microsoft.com', self.packet())
+        self.assertEqual(recording.qsize(), 64)
+        self.assertEqual(network.qsize(), 64)
+        tap.unsubscribe(network)
+        recording.get_nowait()
+        tap.receive('teams.microsoft.com', self.packet())
+        self.assertEqual(recording.qsize(), 64)
+        tap.unsubscribe(recording)
+        self.assertIsNone(tap._queue)
+
     def packet(self, **overrides):
         packet = dict(kind="pcm", rate=16000, time=time.time(), frame="frame1",
                       pcm=base64.b64encode(np.full(1600, 8192, dtype="<i2").tobytes()).decode())

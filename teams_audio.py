@@ -20,6 +20,7 @@ class TeamsAudioTap:
         self.installed = threading.Event()
         self.error = None
         self._queue = None
+        self._subscribers = []
         self._lock = threading.Lock()
         self._handler = None
 
@@ -27,15 +28,18 @@ class TeamsAudioTap:
         if not self.installed.wait(15):
             raise RuntimeError(self.error or "Не удалось подключить захват звука встроенного Teams")
         with self._lock:
-            if self._queue is not None:
-                raise RuntimeError("Звук Teams уже записывается")
-            self._queue = queue.Queue(maxsize=64)
-            return self._queue
+            if len(self._subscribers) >= 4:
+                raise RuntimeError("Слишком много получателей звука Teams")
+            target = queue.Queue(maxsize=64)
+            self._subscribers.append(target)
+            self._queue = target  # compatibility for capture diagnostics
+            return target
 
     def unsubscribe(self, target):
         with self._lock:
-            if self._queue is target:
-                self._queue = None
+            if target in self._subscribers:
+                self._subscribers.remove(target)
+            self._queue = self._subscribers[-1] if self._subscribers else None
 
     def receive(self, host, body):
         # The Teams page has no Python API. This bridge accepts bounded PCM only.
@@ -59,8 +63,7 @@ class TeamsAudioTap:
                 return
             chunk = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768
             with self._lock:
-                target = self._queue
-                if target is not None:
+                for target in self._subscribers:
                     if target.full():
                         target.get_nowait()
                     target.put_nowait((frame, rate, stamp, chunk))
