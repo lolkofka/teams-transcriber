@@ -61,6 +61,16 @@ class AudioStreamTests(unittest.TestCase):
         self.assertTrue(all(not r.is_alive() for r in FixtureRecorder.instances))
         self.assertEqual(self.sender.status()['state'], 'stopped')
 
+    def test_receiver_status_distinguishes_transport_from_playback(self):
+        self.start_sender()
+        self.assertTrue(self.arrived.wait(3))
+        with urllib.request.urlopen(self.url + '/status', timeout=3) as response:
+            import json
+            status = json.load(response)
+        self.assertGreater(status['received_packets'], 0)
+        self.assertEqual(status['peak_db'], -12.04)
+        self.assertIsNotNone(status['packet_age_seconds'])
+
     def test_wrong_path_cannot_play_audio(self):
         req = urllib.request.Request(self.url + '-wrong', data=wav_packet(np.ones(1600)),
                                      headers={'Content-Type': 'audio/wav'})
